@@ -23,6 +23,10 @@
   material field. Uniform/setting trailer words are exposed as
   `unknown_0x14`, `unknown_0x18` and `unknown_0x1C`; default-mismatch reader
   diagnostics remain unchanged. `active_shader_slots` reports source indices.
+- Numeric uniforms retain all sixteen original payload bytes, including unused
+  nonzero words. `float_payload_padding` exposes only the unused tail; preserve
+  it after assigning `value` when reconstructing an imported uniform. Its setter
+  requires exactly `16 - 4 * len(value)` bytes and leaves active values intact.
 - Malformed binary bounds and unsupported sections raise exceptions even
   when optional semantic warnings are collected instead of thrown.
 

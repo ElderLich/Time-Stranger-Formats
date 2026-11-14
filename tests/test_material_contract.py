@@ -71,6 +71,32 @@ class Materials(unittest.TestCase):
         material.validate_parameter_types();setting.parameter_id=25;material.settings=[setting]
         with self.assertRaisesRegex(RuntimeError,'render-state'):material.validate_parameter_types()
 
+    def test_unused_numeric_payload_survives_read_clone_edit_and_write(self):
+        geom=formats.Geom();material=formats.Material();material.name='numeric_donor'
+        uniform=formats.ShaderUniform();uniform.parameter_id=149;uniform.value=[1.2]
+        material.uniforms=[uniform];geom.materials=[material];raw=bytearray(geom.to_bytes())
+        start=struct.unpack_from('<Q',raw,0x50)[0]+0x328
+        # Independent raw edit reproduces donor LocalIntensity's nonzero tail,
+        # including opaque bits that are not interpreted as active floats.
+        tail=struct.pack('<III',0x3f800000,0x000002b3,0x7fc12345)
+        raw[start+4:start+16]=tail
+        parsed=formats.Geom.from_bytes(bytes(raw));value=parsed.materials[0].uniforms[0]
+        self.assertEqual(value.float_payload_padding,tail)
+        encoded=parsed.to_bytes();other=struct.unpack_from('<Q',encoded,0x50)[0]+0x328
+        self.assertEqual(raw[start:start+32],encoded[other:other+32])
+        clone=parsed.materials[0].clone();clone.uniforms[0].value=[2.5]
+        self.assertEqual(clone.uniforms[0].float_payload_padding,tail)
+        clone.uniforms[0].float_payload_padding=bytes(range(12))
+        self.assertEqual(value.float_payload_padding,tail)
+        for invalid in (b'',bytes(11),bytes(13)):
+            with self.assertRaises(ValueError):clone.uniforms[0].float_payload_padding=invalid
+        rebuilt=formats.ShaderUniform();rebuilt.parameter_id=149;rebuilt.value=[3.5]
+        rebuilt.float_payload_padding=value.float_payload_padding
+        material.uniforms=[rebuilt];geom.materials=[material];encoded=geom.to_bytes()
+        other=struct.unpack_from('<Q',encoded,0x50)[0]+0x328
+        self.assertEqual(encoded[other+4:other+16],tail)
+        self.assertEqual(struct.unpack_from('<f',encoded,other)[0],3.5)
+
     def test_material_clone_and_binary_pass_metadata_preservation(self):
         material=formats.Material();material.name='donor'
         for key,value in [('unknown_0x314',0x11223344),('unknown_0x318',0x55667788),

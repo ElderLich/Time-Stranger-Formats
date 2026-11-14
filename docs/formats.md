@@ -68,9 +68,10 @@ Validated on 2026-11-14 with CPython 3.13.14, pybind11 3.0.4 and MSVC 19.44:
 - **12 safety groups:** truncated/malformed binaries, checked array APIs, scene
   records, parent flags, bind-matrix snapshots, singular edits and reference
   add-on export guards.
-- **9 material-contract tests:** all typed descriptors, invalid static texture
+- **10 material-contract tests:** all typed descriptors, invalid static texture
   rejection, explicit numeric/setting checks, independent complete material
-  cloning, exact pass/metadata round trips, value ownership and invalid keys.
+  cloning, exact pass/metadata round trips including nonzero unused numeric
+  payload bytes, value ownership and invalid keys.
 - **3 build/package tests:** typed shader-table validation and archive contents.
 - **100/100 deterministic character fixtures:** structural read/write/read with
   semantic diagnostics collected; exact IBPM, float-binding and parent-table
@@ -80,6 +81,8 @@ Validated on 2026-11-14 with CPython 3.13.14, pybind11 3.0.4 and MSVC 19.44:
 - **7/7 scene fixtures:** exact camera/light/float/IBPM/parent and material
   records, including native material-float effects and mixed camera/light files.
 - **3 generated Leviamon particle fixtures:** exact native material float bindings.
+- **Leviamon donor and current actor:** exact material records, including the
+  nonzero unused numeric payload words that revealed the earlier preservation gap.
 
 Detailed local reports remain under ignored `local/`; proprietary fixtures are
 not distributed. See [binary safety](binary-safety.md) for the initial milestone

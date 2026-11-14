@@ -92,6 +92,15 @@ them interchangeable behavior. Uniforms and settings expose the retained
 save/reload or material split need not reset them. Reader diagnostics for
 non-default trailer words remain unchanged.
 
+Numeric payloads always occupy sixteen bytes even when `float_count` is less
+than four. The native-derived `before-role300.geom` donor exposed nonzero unused
+words in LocalIntensity and IsHeatMap that earlier sampled native fixtures did
+not contain. The backend now retains these bytes and overlays only the active
+float components when writing. `ShaderUniform.float_payload_padding` returns
+the trailing bytes; set it after assigning the numeric value, with exactly
+`16 - 4 * len(value)` bytes. This metadata is opaque, not extra components to
+evaluate or zero. A material clone preserves it independently.
+
 Do not rebuild a split material from just its visible color and texture nodes.
 Source slot presence affects native renderer flags (`0x1402E1220`), and native
 pass selection (`0x1402E63A0`) gives auxiliary slots different output contracts.

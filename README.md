@@ -68,7 +68,7 @@ bind-pose snapshots in a project.
 ## Verified scope
 
 The CPython 3.13 Windows x64 backend passes **12 safety test groups**,
-**9 material-contract tests** and **3 build/package tests**. A deterministic
+**10 material-contract tests** and **3 build/package tests**. A deterministic
 100-character sample and seven scene fixtures pass structural round trips,
 including exact comparisons of camera/light records, float bindings, inverse
 bind matrices, parent tables and complete material pass/parameter records. The consuming importer also passed checks in

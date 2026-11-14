@@ -55,6 +55,9 @@ namespace dsts::geom
             uint16_t parameter_id = 0;
 
             std::variant<std::vector<float>, std::string> value;
+            // GEOM reserves sixteen payload bytes even for one-component
+            // uniforms. Native donor files can carry nonzero unused words.
+            std::array<uint8_t,16> float_payload{};
 
             //unks
             uint32_t unknown_0xC = 0;

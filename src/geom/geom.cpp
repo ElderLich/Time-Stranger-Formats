@@ -420,6 +420,8 @@ namespace dsts::geom
 
                         if (uniform_bin.float_count > 0) {
 
+                            std::memcpy(uniform.float_payload.data(),uniform_bin.payload.floats.floats,16);
+
                             std::vector<float> vec(uniform_bin.float_count);
                             for (int y = 0; y < uniform_bin.float_count ; y++){
                                 vec[y]=(uniform_bin.payload.floats.floats[y]);
@@ -768,6 +770,7 @@ namespace dsts::geom
 
                         if (materials[i]->uniforms[y].uniformType() == "float") {
                             binary::FloatPayload payload{};
+                            std::memcpy(payload.floats,materials[i]->uniforms[y].float_payload.data(),16);
                             auto value = std::get<std::vector<float>>(materials[i]->uniforms[y].value);
 
                             std::copy(

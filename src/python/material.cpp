@@ -53,6 +53,21 @@ void bind_material(py::module_ &m) {
             &dsts::geom::ShaderUniform::getParameterName,
             &dsts::geom::ShaderUniform::setParameterName)
         .def_property_readonly("uniform_type", &dsts::geom::ShaderUniform::uniformType)
+        .def_property("float_payload_padding",[](const dsts::geom::ShaderUniform& u) {
+            const auto* values=std::get_if<std::vector<float>>(&u.value);
+            if(!values || values->empty() || values->size()>4)
+                throw py::value_error("Float payload padding requires an initialized numeric uniform");
+            const size_t offset=values->size()*sizeof(float);
+            return py::bytes(reinterpret_cast<const char*>(u.float_payload.data()+offset),16-offset);
+        },[](dsts::geom::ShaderUniform& u,py::bytes padding) {
+            const auto* values=std::get_if<std::vector<float>>(&u.value);
+            if(!values || values->empty() || values->size()>4)
+                throw py::value_error("Float payload padding requires an initialized numeric uniform");
+            const size_t offset=values->size()*sizeof(float);
+            std::string bytes=padding;
+            if(bytes.size()!=16-offset) throw py::value_error("Float payload padding length does not match component count");
+            std::memcpy(u.float_payload.data()+offset,bytes.data(),bytes.size());
+        })
         .def_property("value",
             [](dsts::geom::ShaderUniform &u) -> py::object {
                 return std::visit([&](auto &arg) -> py::object {
