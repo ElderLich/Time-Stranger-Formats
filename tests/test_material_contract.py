@@ -47,6 +47,14 @@ class Materials(unittest.TestCase):
         gc.collect()
         self.assertEqual(bytes(snapshot), bytes(range(16)))
 
+    def test_invalid_shader_key_does_not_partially_mutate(self):
+        material = formats.Material()
+        shader = material.shaders[0]
+        original = shader.name
+        with self.assertRaises(RuntimeError):
+            shader.name = '000001' + '000000' * 12 + '&&&&&&'
+        self.assertEqual(shader.name, original)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)

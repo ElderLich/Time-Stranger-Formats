@@ -146,7 +146,9 @@ namespace dsts::geom
                     }
                 }
 
-                // Decode segments
+                // Decode atomically: an invalid later segment must not leave
+                // a partially changed shader key behind.
+                std::array<uint32_t, NameSize> decoded{};
                 for (std::size_t i = 0; i < NameSize; ++i) {
                     std::string segment = cleanName.substr(i * 6, 6);
 
@@ -163,8 +165,9 @@ namespace dsts::geom
                         throw std::runtime_error("Segment value exceeds uint32_t range");
                     }
 
-                    name_data[i] = static_cast<uint32_t>(value);
+                    decoded[i] = static_cast<uint32_t>(value);
                 }
+                name_data = decoded;
             }
 
         private:
