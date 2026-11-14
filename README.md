@@ -2,6 +2,8 @@
 
 **Understand the files. Preserve the details. Build better modding tools.**
 
+A maintained derivative of **[Nymic_Razor / Named-Blade's original parser](https://github.com/Named-Blade/dsts-formats/tree/parser)**.
+
 A C++20 parser and Python backend for *Digimon Story: Time Stranger* geometry,
 with Blender adapters and binary format notes. This is the maintained source
 home for the backend used by
@@ -74,7 +76,7 @@ source control. The shader parameter table is an input to the build, not junk.
 ## Credits
 
 - **Nymic_Razor / Named-Blade** — original parser, Blender adapter and
-  [DSTS format research](https://github.com/Named-Blade/dsts-formats).
+  [DSTS Formats Parser](https://github.com/Named-Blade/dsts-formats/tree/parser).
 - **Senator John, Zeak, Romsstar, Pherakki and the Digimon modding community** —
   related importer work and tools used by the wider project.
 - **Hyotan's workshop** — [Time Stranger modding guides](https://hyotan-dev.github.io/dstsworkshop/).

@@ -5,8 +5,8 @@ without source changes: `src/`, `addon/`, `notes/`, `CMakeLists.txt`,
 `generate_shader_header.py` and its existing `.gitignore`.
 
 The add-on identifies its author as **Nymic_Razor** and version **0.1.0**.
-Related format research is published by
-[Named-Blade](https://github.com/Named-Blade/dsts-formats). The supplied directory
+The original parser is published by
+[Named-Blade on the `parser` branch](https://github.com/Named-Blade/dsts-formats/tree/parser). The supplied directory
 had no Git history or licence file. This repository does not claim that its
 initial commit is an upstream revision, nor assign new licensing terms to it.
 
