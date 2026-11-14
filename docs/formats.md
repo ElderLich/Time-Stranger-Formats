@@ -19,7 +19,7 @@ unknown fields remain explicitly unknown.
 | Mesh controllers | Explicitly unsupported | Mandatory rejection even when collecting semantic diagnostics. |
 | NLST | Reference add-on writes companion name lists | Not a general NLST parser; broader type coverage and ordering need separate validation. |
 | ANIM | Not implemented here | Time Stranger Importer supplies its separate animation serializer. |
-| SPRK / effect BSON | Not implemented here | Native cinematic tooling lives in the separate research project. |
+| SPRK / effect BSON | Not implemented here | Native cinematic tooling lives in the separate research project. [Future codec requirements](future-effect-codec.md) distinguish raw preservation from generated-profile defaults and explicit migrations. |
 | Math | Existing transforms and X-mirror; safe inverse failure | Mirror-Y/mirror-Z TODOs have not been promoted to supported behavior. |
 
 The [scene-record documentation](scene-records.md) lists native functions,
