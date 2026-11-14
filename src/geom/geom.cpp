@@ -538,6 +538,18 @@ namespace dsts::geom
                     if(mesh.matrix_palette.empty() || mesh.matrix_palette.size()>65535) throw std::runtime_error("Invalid matrix palette size");
                     for(const auto& bone:mesh.matrix_palette)
                         if(!bone || getIndex(skeleton.bones,bone)<0) throw std::runtime_error("Matrix palette bone is outside the skeleton");
+                    // Native 1402E63A0 tests mesh flags bit 4 before uploading
+                    // MatrixPalette. This fast path copies count consecutive
+                    // skeleton matrices starting at palette[0]; it does not
+                    // gather the remaining stored indices. Preserve the flag
+                    // on read, but never export a sparse/reordered list under
+                    // this contract (a real skinned glow used the wrong wing).
+                    if(mesh.flag_2) {
+                        const auto first=getIndex(skeleton.bones,mesh.matrix_palette.front());
+                        for(size_t i=0;i<mesh.matrix_palette.size();++i)
+                            if(getIndex(skeleton.bones,mesh.matrix_palette[i])!=first+static_cast<int>(i))
+                                throw std::runtime_error("Mesh flag_2 requires a contiguous ascending skeleton matrix palette: "+mesh.name);
+                    }
                     if(mesh.vertices.empty()) throw std::runtime_error("Cannot write an empty mesh");
                     if(mesh.vertices.size()>65536 || mesh.indices.size()>0xFFFFFFFFull) throw std::runtime_error("Mesh exceeds the supported 16-bit index format");
                     if(mesh.primitive!=binary::Triangles && mesh.primitive!=binary::Triangle_strip) throw std::runtime_error("Unsupported mesh primitive");

@@ -172,6 +172,45 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(len(copied),0x41c)
         with self.assertRaises(Exception): formats.Geom().clut=b'short'
 
+    def test_contiguous_palette_flag_matches_native_upload(self):
+        geom=example(); root=geom.skeleton.bones[0]
+        children=[]
+        for i in range(3):
+            bone=formats.Bone();bone.name=f'joint{i}';bone.parent=root;children.append(bone)
+        geom.skeleton.bones=[root,*children]
+        mesh=geom.meshes[0];mesh.flag_2=True
+        # Native memcpy starts at the first stored index, so a nonzero start
+        # and a single bone are legitimate; do not ban the optimization.
+        for palette in ([children[0]], children[:2], children):
+            for bone in children:bone.is_geometry=False
+            if len(palette)==1:palette[0].is_geometry=True
+            mesh.matrix_palette=palette
+            parsed=formats.Geom.from_bytes(geom.to_bytes())
+            self.assertTrue(parsed.meshes[0].flag_2)
+            self.assertEqual([b.name for b in parsed.meshes[0].matrix_palette],[b.name for b in palette])
+        for palette in ([root,children[1]], [children[1],children[0]], [root,root]):
+            mesh.matrix_palette=palette
+            for collect in (False,True):
+                formats.set_throw_errors(not collect)
+                with self.subTest(palette=[b.name for b in palette],collect=collect):
+                    with self.assertRaisesRegex(RuntimeError,'contiguous ascending'):geom.to_bytes()
+                    with tempfile.TemporaryDirectory() as folder:
+                        target=Path(folder)/'keep.geom';target.write_bytes(b'keep')
+                        with self.assertRaisesRegex(RuntimeError,'contiguous ascending'):geom.to_file(str(target))
+                        self.assertEqual(target.read_bytes(),b'keep')
+        formats.set_throw_errors(True)
+        # Sparse palettes use the gather branch. Keep forensic/native reads
+        # available even when a pre-existing file has the invalid fast flag.
+        mesh.flag_2=False;mesh.matrix_palette=[root,children[1]]
+        raw=bytearray(geom.to_bytes());header=struct.unpack_from('<Q',raw,0x48)[0]
+        raw[header+0x31]|=4
+        parsed=formats.Geom.from_bytes(bytes(raw))
+        self.assertTrue(parsed.meshes[0].flag_2)
+        self.assertEqual([b.name for b in parsed.meshes[0].matrix_palette],['root','joint1'])
+        with self.assertRaisesRegex(RuntimeError,'contiguous ascending'):parsed.to_bytes()
+        parsed.meshes[0].flag_2=False
+        self.assertFalse(formats.Geom.from_bytes(parsed.to_bytes()).meshes[0].flag_2)
+
     def test_camera_light_and_float_metadata_roundtrip(self):
         geom=example()
         camera=formats.CameraRecord();camera.raw=bytes(range(56));camera.name_hash=geom.skeleton.bones[0].name_hash

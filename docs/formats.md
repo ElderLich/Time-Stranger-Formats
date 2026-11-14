@@ -7,7 +7,7 @@ unknown fields remain explicitly unknown.
 
 | Area | Implemented | Limits |
 | --- | --- | --- |
-| GEOM meshes | Bounded reads/writes of vertex attributes, indices, palettes, material references and names | Supported triangle lists/strips and 16-bit indices; up to four influences. Unsupported layouts/controllers fail explicitly. |
+| GEOM meshes | Bounded reads/writes of vertex attributes, indices, palettes, material references and names; [contiguous-palette flag validation](mesh-palettes.md) on export | Supported triangle lists/strips and 16-bit indices; up to four influences. Unsupported layouts/controllers fail explicitly. |
 | Skeleton hierarchy | Validated references and cycles; native high-bit parent decoding; exact original parent-pair/lookup tables when topology is unchanged | Edits to a captured flagged hierarchy are rejected rather than dropping its flags. |
 | Inverse bind matrices | Original bytes retained while ordered parents, native transforms and geometry flags are unchanged | Edited poses recompute matrices; singular/non-finite inverses fail instead of falling back to identity. |
 | Project snapshots | Compact validated `Geom.bind_pose_snapshot` bytes and a match-status property | Caller must retain the snapshot and exact source transforms for an unchanged rig. Snapshot data is project metadata, not a game format. |
@@ -65,9 +65,9 @@ for every future Blender 5.x Python ABI or native game acceptance of all exports
 
 Validated on 2026-11-14 with CPython 3.13.14, pybind11 3.0.4 and MSVC 19.44:
 
-- **12 safety groups:** truncated/malformed binaries, checked array APIs, scene
+- **13 safety groups:** truncated/malformed binaries, checked array APIs, scene
   records, parent flags, bind-matrix snapshots, singular edits and reference
-  add-on export guards.
+  add-on export guards, and mandatory contiguous-palette fast-path validation.
 - **10 material-contract tests:** all typed descriptors, invalid static texture
   rejection, explicit numeric/setting checks, independent complete material
   cloning, exact pass/metadata round trips including nonzero unused numeric
