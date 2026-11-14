@@ -211,6 +211,43 @@ class SafetyTests(unittest.TestCase):
         parsed.meshes[0].flag_2=False
         self.assertFalse(formats.Geom.from_bytes(parsed.to_bytes()).meshes[0].flag_2)
 
+    def test_parent_pairs_fill_native_simd_groups_safely(self):
+        for count in range(1,7):
+            skeleton=formats.Skeleton();bones=[]
+            for i in range(count):
+                bone=formats.Bone();bone.name=f'joint{i}'
+                if bones:bone.parent=bones[-1]
+                bones.append(bone)
+            skeleton.bones=bones
+            raw=skeleton.to_bytes();pair_count=struct.unpack_from('<I',raw,60)[0]
+            self.assertEqual(pair_count,(count+3)//4*4)
+            pairs=list(struct.iter_unpack('<HH',raw[64:64+4*pair_count]))
+            expected=[(i,i-1 if i else 0x7fff) for i in range(count)]
+            self.assertEqual(pairs,expected+[expected[-1]]*(pair_count-count))
+            # Model the native write-local-then-read-parent ordering with
+            # nonidentity owner/local translations. A padded (0,0) would lose
+            # the owner translation, even though every index remains in range.
+            owner=np.eye(4);owner[0,3]=100
+            local=[]
+            for i in range(count):
+                matrix=np.eye(4);matrix[0,3]=i+1;local.append(matrix)
+            world=[np.eye(4) for _ in bones]
+            for child,parent in pairs:
+                world[child]=local[child].copy()
+                world[child]=(owner if parent==0x7fff else world[parent])@world[child]
+            for i in range(count):self.assertEqual(world[i][0,3],100+(i+1)*(i+2)/2)
+            self.assertEqual(formats.Skeleton.from_bytes(raw).to_bytes(),raw)
+        # Existing source records, including the physical tail outside a
+        # legacy declared count, are preserved rather than silently repaired.
+        skeleton=formats.Skeleton();bone=formats.Bone();bone.name='root';skeleton.bones=[bone]
+        raw=bytearray(skeleton.to_bytes());struct.pack_into('<I',raw,60,1)
+        struct.pack_into('<H',raw,64+4+2,0xffff)
+        source=formats.Skeleton.from_bytes(bytes(raw))
+        self.assertEqual(source.to_bytes(),raw)
+        extra=formats.Bone();extra.name='extra';extra.parent=source.bones[0]
+        source.bones=[source.bones[0],extra]
+        with self.assertRaisesRegex(RuntimeError,'flagged skeleton'):source.to_bytes()
+
     def test_camera_light_and_float_metadata_roundtrip(self):
         geom=example()
         camera=formats.CameraRecord();camera.raw=bytes(range(56));camera.name_hash=geom.skeleton.bones[0].name_hash

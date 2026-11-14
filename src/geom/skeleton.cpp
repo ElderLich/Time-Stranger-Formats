@@ -47,6 +47,7 @@ namespace dsts::geom
 
     class Skeleton {
         std::vector<std::array<uint16_t,2>> sourceParentPairs;
+        std::vector<std::array<uint16_t,2>> sourceParentPadding;
         std::vector<uint16_t> sourceParentTable;
         std::vector<int> sourceParents;
         bool hasSourceParents=false;
@@ -127,7 +128,13 @@ namespace dsts::geom
                 input.limit(header.skeleton_file_size,"Skeleton size");
                 if(header.bone_count && header.bone_parent_vector_size!=2)
                     throw std::runtime_error("Unsupported bone parent vector size");
-                auto pairs=input.array<std::array<uint16_t,2>>(sizeof(header),header.bone_parent_pairs_count,"Bone parent pairs");
+                // Native 140364850 consumes ceil(pair_count/4) SIMD groups,
+                // including physical records beyond a non-multiple count.
+                // Keep that tail for unchanged forensic/native imports.
+                const uint64_t physicalPairCount=(uint64_t(header.bone_parent_pairs_count)+3)&~uint64_t(3);
+                auto physicalPairs=input.array<std::array<uint16_t,2>>(sizeof(header),physicalPairCount,"Physical bone parent pairs");
+                std::vector<std::array<uint16_t,2>> pairs(physicalPairs.begin(),physicalPairs.begin()+header.bone_parent_pairs_count);
+                std::vector<std::array<uint16_t,2>> pairPadding(physicalPairs.begin()+header.bone_parent_pairs_count,physicalPairs.end());
                 auto transforms=input.array<binary::BoneTransform>(dsts::checkedAdd(header.bone_transform_offset,
                     offsetof(binary::SkeletonHeader,bone_transform_offset),"Bone transforms"),header.bone_count,"Bone transforms");
                 auto hashes=input.array<uint32_t>(dsts::checkedAdd(header.bone_name_hashes_offset,
@@ -167,7 +174,7 @@ namespace dsts::geom
                 }
                 for(size_t i=0;i<parsed.size();++i) if(parents[i]>=0) parsed[i]->parent=parsed[parents[i]];
                 bones=std::move(parsed);float_channels=std::move(channels);validate();
-                sourceParentPairs=std::move(pairs);sourceParentTable=std::move(table);
+                sourceParentPairs=std::move(pairs);sourceParentPadding=std::move(pairPadding);sourceParentTable=std::move(table);
                 sourceParents=std::move(parents);hasSourceParents=true;
             }
 
@@ -215,9 +222,23 @@ namespace dsts::geom
                     bone_parent_pairs=sourceParentPairs;
                     parent_bones=sourceParentTable;
                     header.bone_parent_pairs_count=bone_parent_pairs.size();
-                } else if(hasSourceParents && std::any_of(sourceParentPairs.begin(),sourceParentPairs.end(),
-                    [](const auto& pair){return (pair[1]&0x8000)!=0;})) {
-                    throw std::runtime_error("Changing a flagged skeleton hierarchy is not supported");
+                    bone_parent_pairs.insert(bone_parent_pairs.end(),sourceParentPadding.begin(),sourceParentPadding.end());
+                } else {
+                    const auto flagged=[](const auto& pair){return (pair[1]&0x8000)!=0;};
+                    if(hasSourceParents && (std::any_of(sourceParentPairs.begin(),sourceParentPairs.end(),flagged)
+                            || std::any_of(sourceParentPadding.begin(),sourceParentPadding.end(),flagged)))
+                        throw std::runtime_error("Changing a flagged skeleton hierarchy is not supported");
+                    // Padding with zero bytes creates self-parent (0,0)
+                    // evaluations which overwrite the owner's root transform.
+                    // Native one-bone t0109traffic01d/e use four (0,0x7FFF)
+                    // records and count4. Repeat the final valid pair: its
+                    // distinct parent (or owner sentinel) is unchanged, making
+                    // the repeated assignment idempotent.
+                    if(!bone_parent_pairs.empty()) {
+                        const auto last=bone_parent_pairs.back();
+                        bone_parent_pairs.resize((bone_parent_pairs.size()+3)&~size_t(3),last);
+                    }
+                    header.bone_parent_pairs_count=bone_parent_pairs.size();
                 }
 
                 f.seekp(skeleton_start+sizeof(binary::SkeletonHeader));
