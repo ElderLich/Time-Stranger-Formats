@@ -1,0 +1,755 @@
+#pragma once
+
+#include <functional>
+#include <variant>
+#include <iomanip>
+
+#include "binary/clut.hpp"
+#include "binary/enums.hpp"
+#include "binary/geom.hpp"
+#include "binary/material.hpp"
+#include "binary/mesh.hpp"
+#include "binary/name_table.hpp"
+#include "binary/skeleton.hpp"
+
+#include "skeleton.cpp"
+#include "mesh.cpp"
+#include "material.cpp"
+#include "stringSection.cpp"
+#include "../utils/hash.cpp"
+#include "../utils/stream.cpp"
+#include "../utils/align.cpp"
+#include "../utils/errors.cpp"
+
+namespace dsts::geom
+{  
+    class Geom {
+        public:
+            uint32_t unknown_0x10 = 0;
+            uint32_t unknown_0x30 = 0;
+            uint32_t unknown_0x34 = 0;
+
+            binary::Clut clut;
+
+            Skeleton skeleton;
+            std::vector<Mesh> meshes;
+            std::vector<std::shared_ptr<Material>> materials;
+
+            void read(std::istream& f, int base = 0){
+                binary::GeomHeader header;
+
+                f.seekg(base);
+                f.read(reinterpret_cast<char*>(&header), sizeof(binary::GeomHeader));
+
+                ASSERT_OR_THROW(header.version == 316, "Geom version is not 316");
+
+                unknown_0x10 = header.unknown_0x10;
+                unknown_0x30 = header.unknown_0x30;
+                unknown_0x34 = header.unknown_0x34;
+
+                binary::NameTableHeader nameTableHeader;
+                f.seekg(base + header.name_table_offset);
+                f.read(reinterpret_cast<char*>(&nameTableHeader), sizeof(binary::NameTableHeader));
+
+                std::vector<uint64_t> bone_name_offsets(nameTableHeader.bone_name_count);
+                f.seekg(base + nameTableHeader.bone_name_offsets_offset);
+                f.read(reinterpret_cast<char*>(bone_name_offsets.data()), sizeof(uint64_t) * nameTableHeader.bone_name_count);
+
+                std::vector<std::string> bone_names(nameTableHeader.bone_name_count);
+                for (int i = 0; i < nameTableHeader.bone_name_count; i++) {
+                    f.seekg(base + bone_name_offsets[i] + header.strings_offset);
+                    std::string result;
+                    char ch;
+                    while (f.get(ch)) {
+                        if (ch == '\0') break;
+                        result += ch;
+                    }
+                    bone_names.push_back(result);
+                }
+
+                std::vector<uint64_t> material_name_offsets(nameTableHeader.material_name_count);
+                f.seekg(base + nameTableHeader.material_name_offsets_offset);
+                f.read(reinterpret_cast<char*>(material_name_offsets.data()), sizeof(uint64_t) * nameTableHeader.material_name_count);
+
+                std::vector<std::string> material_names(nameTableHeader.material_name_count);
+                for (int i = 0; i < nameTableHeader.material_name_count; i++) {
+                    f.seekg(base + material_name_offsets[i] + header.strings_offset);
+                    std::string result;
+                    char ch;
+                    while (f.get(ch)) {
+                        if (ch == '\0') break;
+                        result += ch;
+                    }
+                    material_names.push_back(result);
+                }
+
+                skeleton.read(f, header.skeleton_offset, base);
+
+                f.seekg(base + header.ibpm_offset);
+                std::vector<binary::Ibpm> ibpms(header.ibpm_count);
+                f.read(reinterpret_cast<char*>(ibpms.data()), sizeof(binary::Ibpm) * header.ibpm_count);
+
+                std::unordered_map<uint32_t, std::string> hash_to_bone_name;
+                for (const auto& name : bone_names) {
+                    uint32_t hash = crc32((const uint8_t*)name.c_str(), name.length());
+                    hash_to_bone_name[hash] = name;
+                }
+
+                for (auto& bone : skeleton.bones) {
+                    auto it = hash_to_bone_name.find(bone->name_hash);
+                    if (it != hash_to_bone_name.end()) {
+                        bone->name = it->second;
+                    }
+                }
+
+                std::vector<binary::MeshHeader> meshHeaders(header.mesh_count);
+                f.seekg(base + header.mesh_offset);
+                f.read(reinterpret_cast<char*>(meshHeaders.data()), sizeof(binary::MeshHeader) * header.mesh_count);
+                
+                for(int i = 0; i < header.mesh_count; i++) {
+                    Mesh mesh;
+
+                    mesh.unknown_0x18 = meshHeaders[i].unknown_0x18;
+                    mesh.unknown_0x4C = meshHeaders[i].unknown_0x4C;
+                    mesh.unknown_0x50 = meshHeaders[i].unknown_0x50;
+
+                    mesh.primitive = meshHeaders[i].primitive_type;
+
+                    mesh.flag_0 = meshHeaders[i].flags.flag_0;
+                    mesh.flag_1 = meshHeaders[i].flags.flag_1;
+                    mesh.flag_2 = meshHeaders[i].flags.flag_2;
+                    mesh.flag_3 = meshHeaders[i].flags.flag_3;
+                    mesh.flag_4 = meshHeaders[i].flags.flag_4;
+                    mesh.flag_5 = meshHeaders[i].flags.flag_5;
+                    mesh.flag_6 = meshHeaders[i].flags.flag_6;
+                    mesh.flag_7 = meshHeaders[i].flags.flag_7;
+
+                    std::vector<uint32_t> matrix_palette(meshHeaders[i].matrix_palette_count);
+                    f.seekg(base + meshHeaders[i].matrix_palette_offset);
+                    f.read(reinterpret_cast<char*>(matrix_palette.data()), sizeof(uint32_t) * meshHeaders[i].matrix_palette_count);
+
+                    for(int y = 0; y < matrix_palette.size(); y++) {
+                        mesh.matrix_palette.push_back(skeleton.bones[matrix_palette[y]]);
+                    }
+
+                    mesh.name_hash = meshHeaders[i].name_hash;
+                    if (mesh.name_hash != 0 && meshHeaders[i].name_offset != 0) {
+                        f.seekg(base + header.strings_offset + meshHeaders[i].name_offset);
+
+                        std::string result;
+                        char ch;
+                        while (f.get(ch)) {
+                            if (ch == '\0') break;
+                            result += ch;
+                        }
+                        mesh.name = result;
+
+                        ASSERT_OR_THROW(mesh.name_hash == crc32((const uint8_t*)mesh.name.data(),mesh.name.size()), ([&mesh](){
+                            std::ostringstream oss;
+                            oss << "name does not match hash in: " << mesh.name << std::endl;
+                            oss << "hash: 0x" << std::setw(8) << std::setfill('0') << std::hex << mesh.name_hash << std::dec << std::endl; 
+                            oss << "calc: 0x" << std::setw(8) << std::setfill('0') << std::hex << crc32((const uint8_t*)mesh.name.data(),mesh.name.size()) << std::dec;
+                            return oss.str();
+                        })());
+                    }
+
+                    mesh.meshAttributes.resize(meshHeaders[i].attribute_count);
+                    f.seekg(base + meshHeaders[i].attributes_offset);
+                    f.read(reinterpret_cast<char*>(mesh.meshAttributes.data()), sizeof(binary::MeshAttribute) * meshHeaders[i].attribute_count);
+
+                    mesh.bytes_per_vertex = meshHeaders[i].bytes_per_vertex;
+
+                    size_t totalBytes =  meshHeaders[i].bytes_per_vertex *  meshHeaders[i].vertex_count;
+                    auto allVertices = std::make_unique<char[]>(totalBytes);
+                    f.seekg(base + meshHeaders[i].vertices_offset);
+                    f.read((char*)allVertices.get(), totalBytes);
+
+                    unpackVertices(mesh.vertices, mesh.meshAttributes, allVertices.get(), totalBytes,  meshHeaders[i].bytes_per_vertex);
+
+                    if (meshHeaders[i].vertex_groups_per_vertex == 0) {
+                        for (auto &v : mesh.vertices) {
+                            v.index.data  = InlineVec<uint8_t>{0};
+                            v.weight.data = InlineVec<float16>{(float16)1.0f};
+                        }   
+                    }
+                    else if (meshHeaders[i].vertex_groups_per_vertex == 1) {
+                        for (auto &v : mesh.vertices) {
+                            const auto& pos = std::get<InlineVec<float>>(v.position.data);
+                            uint8_t extractedIndex = (uint8_t)pos[3];
+                            v.index.data  = InlineVec<uint8_t>{extractedIndex};
+                            v.weight.data = InlineVec<float16>{(float16)1.0f};
+                        }   
+                    }
+
+                    mesh.indices.resize(meshHeaders[i].index_count);
+                    f.seekg(base + meshHeaders[i].indices_offset);
+                    f.read(reinterpret_cast<char*>(mesh.indices.data()), sizeof(uint16_t) * meshHeaders[i].index_count);
+
+                    ASSERT_OR_THROW(meshHeaders[i].controller_offset == 0, ([&mesh](){
+                        std::ostringstream oss;
+                        oss << "Controller found in mesh: " << mesh.name << std::endl;
+                        oss << "This is not yet supported";
+                        return oss.str();
+                    })());
+
+                    meshes.push_back(mesh);
+                }
+
+                for (const auto &pair : getGeometry(meshes)) {
+                    pair.first->is_geometry = true;
+                }
+
+                for (int i = 0; i < meshes.size() ; i++) {
+                    //bounding sanity check
+                    Mesh mesh = meshes[i];
+                    std::vector<std::array<float, 3>> pos;
+                    pos.reserve(mesh.vertices.size());
+                    for (const auto& vertex : mesh.vertices) {
+                        const auto& floats = std::get<InlineVec<float>>(vertex.position.data);
+                        pos.emplace_back(std::array<float, 3>{floats[0], floats[1], floats[2]});
+                    }
+                    if (mesh.matrix_palette.size() > 0 && mesh.matrix_palette[0]->is_geometry) {
+                        auto transform = DecomposeMatrix(GetWorldMatrix(mesh.matrix_palette[0]));
+                        std::array<float, 3> centre{transform.position[0],transform.position[1],transform.position[2]};
+                        BoundingInfo info = calculateBoundingInfoGeometry<float>(pos, centre);
+                        assert(boundingEquals(info,boundingFromHeader(meshHeaders[i])));
+                    } else {
+                        BoundingInfo info = calculateBoundingInfo<float>(pos);
+                        assert(boundingEquals(info,boundingFromHeader(meshHeaders[i])));
+                    }
+                }
+
+                //sanity tests
+                ASSERT_OR_THROW(ibpms.size() == skeleton.bones.size(), "Ibpm count does not match skeleton bone count");
+                for (int i = 0; i < skeleton.bones.size(); i++) {
+                    if (skeleton.bones[i]->is_geometry) {
+                        ASSERT_OR_THROW(ibpmEqual(ibpms[i], Ibpm()), ([this, &i, &ibpms](){
+                            std::ostringstream oss;
+                            oss << "Geometry Ibpm does not match identity: " << this->skeleton.bones[i]->name << std::endl;
+                            oss << "Ibpm:" << std::endl;
+                            oss << printTransform(DecomposeMatrix(MatrixFromIbpm(ibpms[i]).inverse()));
+                            return oss.str();
+                        })());
+                    } else {
+                        Ibpm computed = ibpmFromMatrix(ComputeInverseBindPose(skeleton.bones[i]));
+                        ASSERT_OR_THROW(ibpmEqual(ibpms[i], computed), ([this, &i, &ibpms, &computed](){
+                            std::ostringstream oss;
+                            oss << "Ibpm does not match on: " << this->skeleton.bones[i]->name << std::endl;
+                            oss << "Ibpm:" << std::endl;
+                            oss << printTransform(DecomposeMatrix(MatrixFromIbpm(ibpms[i]).inverse())) << std::endl;
+                            oss << "Bone:" << std::endl;
+                            oss << printTransform(DecomposeMatrix(MatrixFromIbpm(computed).inverse()));
+                            return oss.str();
+                        })() );
+                    }
+                }
+
+                for (int i = 0; i < skeleton.bones.size(); i++) {
+                    auto b = *skeleton.bones[i].get();
+                    auto transform_actual = DecomposeMatrix(GetWorldMatrix(b));
+                    auto parent_actual = b.parent ? DecomposeMatrix(GetWorldMatrix(b.parent)) : binary::BoneTransform();
+                    assert(transformEqual(transform_actual,getAbsoluteTransform(b.transform, &parent_actual)));
+                    assert(transformEqual(b.transform,getRelativeTransform(transform_actual, &parent_actual)));
+                }
+
+                {
+                    std::vector<std::array<float, 3>> pos_list;
+                    for (const auto &mesh : meshes) {
+                        if (!mesh.matrix_palette[0]->is_geometry) {
+                            for (const auto &vertex : mesh.vertices){
+                                const auto& floats = std::get<InlineVec<float>>(vertex.position.data);
+                                pos_list.emplace_back(std::array<float, 3>{floats[0], floats[1], floats[2]});
+                            }
+                        }   
+                    }
+                    BoundingInfo info = calculateBoundingInfo<float>(pos_list);
+                    info.bounding_sphere_radius = 0.0;
+
+                    BoundingInfo h_info{};
+                    h_info.bbox = {header.bbox[0],header.bbox[1],header.bbox[2]};
+                    h_info.centre = {header.centre[0],header.centre[1],header.centre[2]};
+
+                    assert(boundingEquals(info,h_info));
+                }
+
+                std::unordered_map<uint32_t, std::string> hash_to_material_name;
+                for (const auto& name : material_names) {
+                    uint32_t hash = crc32((const uint8_t*)name.c_str(), name.length());
+                    hash_to_material_name[hash] = name;
+                }
+
+                f.seekg(base + header.material_offset);
+                for (int i = 0; i < header.material_count ; i++){
+                    std::shared_ptr<Material> mat_ptr = std::make_shared<Material>();
+                    Material &material = *mat_ptr.get();
+
+                    binary::MaterialHeader materialHeader;
+                    f.read(reinterpret_cast<char*>(&materialHeader), sizeof(materialHeader));
+
+                    material.name_hash = materialHeader.name_hash;
+
+                    auto it = hash_to_material_name.find(material.name_hash);
+                    if (it != hash_to_material_name.end()) {
+                        material.name = it->second;
+                    }
+
+                    material.unknown_0x314 = materialHeader.unknown_0x314;
+                    material.unknown_0x318 = materialHeader.unknown_0x318;
+                    material.unknown_0x31C = materialHeader.unknown_0x31C;
+                    material.unknown_0x324 = materialHeader.unknown_0x324;
+                    material.unknown_0x326 = materialHeader.unknown_0x326;
+
+                    for (int y = 0; y < 14; y++) {
+                        std::copy(std::begin(materialHeader.shaders[y].name_data), std::end(materialHeader.shaders[y].name_data), material.shaders[y].name_data.begin());
+                    }
+
+                    std::vector<binary::ShaderUniform> shaderUniforms(materialHeader.uniform_count);
+                    std::vector<binary::ShaderSetting> shaderSettings(materialHeader.setting_count);
+
+                    f.read(reinterpret_cast<char*>(shaderUniforms.data()), sizeof(binary::ShaderUniform) * materialHeader.uniform_count);
+                    f.read(reinterpret_cast<char*>(shaderSettings.data()), sizeof(binary::ShaderSetting) * materialHeader.setting_count);
+
+                    for (const auto &uniform_bin : shaderUniforms) {
+                        ShaderUniform uniform;
+
+                        uniform.parameter_id = uniform_bin.parameter_id;
+                        uniform.parameter_name = shaderParamMap.at(uniform.parameter_id);
+
+                        uniform.unknown_0x14 = uniform_bin.unknown_0x14;
+                        uniform.unknown_0x18 = uniform_bin.unknown_0x18;
+                        uniform.unknown_0x1C = uniform_bin.unknown_0x1C;
+
+                        ASSERT_OR_THROW((
+                            uniform.unknown_0x14 == 0xFFFFFFFF && 
+                            uniform.unknown_0x18 == 0xFFFFFFFF && 
+                            uniform.unknown_0x1C == 0xFFFFFF
+                        ), ([&uniform, &material](){
+                            std::ostringstream oss;
+                            oss << "Uniform \"" << uniform.parameter_name << "\" In material \"" << material.name << "\" does not match expected padding" << std::endl;
+                            oss <<  "0x" << std::setw(8) << std::setfill('0') << std::hex << uniform.unknown_0x14 << std::dec << std::endl;
+                            oss <<  "0x" << std::setw(8) << std::setfill('0') << std::hex << uniform.unknown_0x18 << std::dec << std::endl;
+                            oss <<  "0x" << std::setw(8) << std::setfill('0') << std::hex << uniform.unknown_0x1C << std::dec;
+                            return oss.str();
+                        })());
+
+                        if (uniform_bin.float_count > 0) {
+
+                            std::vector<float> vec(uniform_bin.float_count);
+                            for (int y = 0; y < uniform_bin.float_count ; y++){
+                                vec[y]=(uniform_bin.payload.floats.floats[y]);
+                            }
+                            uniform.value = vec;
+                            
+                        } else {
+                            size_t current = f.tellg();
+
+                            f.seekg(base + header.strings_offset + uniform_bin.payload.texture.texture_name_offset);
+
+                            std::string result;
+                            char ch;
+                            while (f.get(ch)) {
+                                if (ch == '\0') break;
+                                result += ch;
+                            }
+                            uniform.value = result;
+                            ASSERT_OR_THROW(result.size() == uniform_bin.payload.texture.texture_name_length, ([&uniform, &uniform_bin, &result, &material](){
+                                std::ostringstream oss;
+                                oss << "Uniform \"" << uniform.parameter_name << "\" In material \"" << material.name << "\":" << std::endl;
+                                oss << "Texture name does not match length" << std::endl;
+                                oss << "Name  : " << result << std::endl;
+                                oss << "Length: " << uniform_bin.payload.texture.texture_name_length;
+                                return oss.str();
+                            })());
+
+                            uniform.unknown_0xC = uniform_bin.payload.texture.unknown_0xC;
+
+                            f.seekg(current);
+                        }
+
+                        material.uniforms.push_back(uniform);
+                    }
+
+                    for (const auto &setting_bin : shaderSettings) {
+                        ShaderSetting setting;
+
+                        setting.parameter_id = setting_bin.parameter_id;
+                        setting.parameter_name = shaderParamMap.at(setting.parameter_id);
+
+                        setting.payload = setting_bin.payload;
+
+                        setting.unknown_0x12 = setting_bin.unknown_0x12;
+                        setting.unknown_0x14 = setting_bin.unknown_0x14;
+                        setting.unknown_0x18 = setting_bin.unknown_0x18;
+                        setting.unknown_0x1C = setting_bin.unknown_0x1C;
+
+                        ASSERT_OR_THROW((
+                            setting.unknown_0x14 == 0xFFFFFFFF && 
+                            setting.unknown_0x18 == 0xFFFFFFFF && 
+                            setting.unknown_0x1C == 0xFFFFFF
+                        ), ([&setting, &material](){
+                            std::ostringstream oss;
+                            oss << "Setting \"" << setting.parameter_name << "\" In material \"" << material.name << "\" does not match expected padding" << std::endl;
+                            oss <<  "0x" << std::setw(8) << std::setfill('0') << std::hex << setting.unknown_0x14 << std::dec << std::endl;
+                            oss <<  "0x" << std::setw(8) << std::setfill('0') << std::hex << setting.unknown_0x18 << std::dec << std::endl;
+                            oss <<  "0x" << std::setw(8) << std::setfill('0') << std::hex << setting.unknown_0x1C << std::dec;
+                            return oss.str();
+                        })());
+
+                        material.settings.push_back(setting);
+                    }
+
+                    materials.push_back(std::move(mat_ptr));
+                }
+
+                for (int i = 0; i < meshes.size() ; i++) {
+                    meshes[i].material = materials[meshHeaders[i].material_idx];
+                }
+
+                //do this properly latter
+                f.seekg(base + header.clut_offset);
+                f.read(reinterpret_cast<char*>(&clut), sizeof(binary::Clut));
+
+                ASSERT_OR_THROW(header.light_count == 0, "Geom contains Light data, this is not yet implemented");
+                ASSERT_OR_THROW(header.camera_count == 0,"Geom contains Camera data, this is not yet implemented");
+            }
+
+            void write(std::ostream& f, int base = 0){
+                binary::GeomHeader header;
+
+                header.unknown_0x10 = unknown_0x10;
+                header.unknown_0x30 = unknown_0x30;
+                header.unknown_0x34 = unknown_0x34;
+
+                header.mesh_count = meshes.size();
+                header.material_count = materials.size();
+                header.ibpm_count = skeleton.bones.size();
+
+                binary::NameTableHeader nameTable;
+                size_t nameTableBase = sizeof(binary::GeomHeader);
+                header.name_table_offset = nameTableBase;
+                std::vector<uint64_t> bone_name_offsets(skeleton.bones.size());
+                std::vector<uint64_t> material_name_offsets(materials.size());
+                StringSection stringSection{};
+
+                nameTable.bone_name_count = skeleton.bones.size();
+                nameTable.material_name_count = materials.size();
+                nameTable.bone_name_offsets_offset = nameTableBase + sizeof(binary::NameTableHeader);
+                nameTable.material_name_offsets_offset = nameTable.bone_name_offsets_offset + sizeof(uint64_t) * nameTable.bone_name_count;
+
+                std::vector<binary::MeshHeader> meshHeaders(meshes.size());
+                std::vector<std::string> vertices(meshes.size());
+                std::vector<std::vector<uint32_t>> matrixPalettes(meshes.size());
+                std::vector<std::vector<uint16_t>> indices(meshes.size());
+                std::vector<std::vector<binary::MeshAttribute>> attributes(meshes.size());
+                size_t meshesBase = nameTable.material_name_offsets_offset + sizeof(uint64_t) * nameTable.material_name_count;
+                size_t meshDataBase = align( meshesBase + sizeof(binary::MeshHeader) * meshes.size(), 0x8 );
+                size_t meshDataSize{};
+                header.mesh_offset = meshesBase;
+
+                std::vector<std::array<float, 3>> pos_all;
+                size_t totalVertexCount = 0;
+                for (const auto& mesh : meshes) {
+                    if (!mesh.matrix_palette[0]->is_geometry) totalVertexCount += mesh.vertices.size();
+                }
+                pos_all.reserve(totalVertexCount);
+
+                for (int i = 0; i < meshes.size(); i++) {
+                    auto mesh = meshes[i];
+                    binary::MeshHeader meshHeader{};
+
+                    meshHeader.name_hash = mesh.name_hash;
+                    meshHeader.name_offset = stringSection.add(mesh.name);
+
+                    meshHeader.material_idx = getIndex(materials, mesh.material);
+                    meshHeader.primitive_type = mesh.primitive;
+
+                    meshHeader.flags.flag_0 = mesh.flag_0;
+                    meshHeader.flags.flag_1 = mesh.flag_1;
+                    meshHeader.flags.flag_2 = mesh.flag_2;
+                    meshHeader.flags.flag_3 = mesh.flag_3;
+                    meshHeader.flags.flag_4 = mesh.flag_4;
+                    meshHeader.flags.flag_5 = mesh.flag_5;
+                    meshHeader.flags.flag_6 = mesh.flag_6;
+                    meshHeader.flags.flag_7 = mesh.flag_7;
+
+                    meshHeader.unknown_0x18 = mesh.unknown_0x18;
+                    meshHeader.unknown_0x4C = mesh.unknown_0x4C;
+                    meshHeader.unknown_0x50 = mesh.unknown_0x50;
+
+                    auto attrData = buildMeshAttributes(mesh.vertices);
+                    std::vector<Vertex> vertexCopy = mesh.vertices;
+
+                    {
+                        auto weightOpt = getAttributeByAtype(attrData.attributes, binary::Atype::Weight);
+                        binary::MeshAttribute &weight = weightOpt->get();
+                        uint8_t vertexGroupCount = weight.count;
+
+                        if (vertexGroupCount == 1) {
+                            if (mesh.matrix_palette.size() > 1) {
+                                for (auto &v : vertexCopy) {
+                                    auto& pos = std::get<InlineVec<float>>(v.position.data);
+                                    auto& index = std::get<InlineVec<uint8_t>>(v.index.data);
+
+                                    pos.resize(4);
+                                    pos[3] = index[0];
+
+                                    v.index.data = std::monostate();
+                                    v.weight.data = std::monostate();
+                                }
+                                meshHeader.vertex_groups_per_vertex = 1;
+                            } else {
+                                for (auto &v : vertexCopy) {
+                                    v.index.data = std::monostate();
+                                    v.weight.data = std::monostate();
+                                }
+                                meshHeader.vertex_groups_per_vertex = 0;
+                            }
+                            attrData = buildMeshAttributes(vertexCopy);
+                        } else {
+                            meshHeader.vertex_groups_per_vertex = vertexGroupCount;
+                        }
+                    }
+
+                    meshHeader.bytes_per_vertex = mesh.bytes_per_vertex;
+
+                    meshHeader.vertices_offset = meshDataBase + meshDataSize;
+                    meshHeader.vertex_count = vertexCopy.size();
+                    std::string verts = packVertices(mesh.meshAttributes, vertexCopy, mesh.bytes_per_vertex);
+                    meshDataSize += verts.size();
+                    meshDataSize = align(meshDataSize, 0x8);
+                    vertices[i] = verts;
+
+                    meshHeader.matrix_palette_offset = meshDataBase + meshDataSize;
+                    meshHeader.matrix_palette_count = mesh.matrix_palette.size();
+                    std::vector<uint32_t> palette(mesh.matrix_palette.size());
+                    for (int y = 0; y < mesh.matrix_palette.size() ; y++) {
+                        palette[y] = getIndex(skeleton.bones, mesh.matrix_palette[y]);
+                    }
+                    meshDataSize += sizeof(uint32_t) * palette.size();
+                    meshDataSize = align(meshDataSize, 0x8);
+                    matrixPalettes[i] = palette;
+
+                    meshHeader.indices_offset = meshDataBase + meshDataSize;
+                    meshHeader.index_count = mesh.indices.size();
+                    meshDataSize += sizeof(uint16_t) * mesh.indices.size();
+                    meshDataSize = align(meshDataSize, 0x8);
+                    indices[i] = mesh.indices;
+
+                    meshHeader.attributes_offset = meshDataBase + meshDataSize;
+                    meshHeader.attribute_count = mesh.meshAttributes.size();
+                    meshDataSize += sizeof(binary::MeshAttribute) * mesh.meshAttributes.size();
+                    meshDataSize = align(meshDataSize, 0x8);
+                    attributes[i] = mesh.meshAttributes;
+
+                    std::vector<std::array<float, 3>> pos;
+                    pos.reserve(vertexCopy.size());
+                    for (const auto& vertex : vertexCopy) {
+                        const auto& floats = std::get<InlineVec<float>>(vertex.position.data);
+                        pos.emplace_back(std::array<float, 3>{floats[0], floats[1], floats[2]});
+                        if (!mesh.matrix_palette[0]->is_geometry) pos_all.emplace_back(std::array<float, 3>{floats[0], floats[1], floats[2]});
+                    }
+                    BoundingInfo info;
+                    if (mesh.matrix_palette[0]->is_geometry) {
+                        auto transform = DecomposeMatrix(GetWorldMatrix(mesh.matrix_palette[0]));
+                        std::array<float, 3> centre{transform.position[0],transform.position[1],transform.position[2]};
+                        info = calculateBoundingInfoGeometry<float>(pos, centre);
+                    } else {
+                        info = calculateBoundingInfo<float>(pos);
+                    }
+
+                    meshHeader.bounding_sphere_radius = info.bounding_sphere_radius;
+                    meshHeader.bbox[0] = info.bbox[0];
+                    meshHeader.bbox[1] = info.bbox[1];
+                    meshHeader.bbox[2] = info.bbox[2];
+                    meshHeader.centre[0] = info.centre[0];
+                    meshHeader.centre[1] = info.centre[1];
+                    meshHeader.centre[2] = info.centre[2];
+                    
+                    meshHeaders[i] = meshHeader;
+                }
+
+                BoundingInfo info = calculateBoundingInfo<float>(pos_all);
+                header.bbox[0] = info.bbox[0];
+                header.bbox[1] = info.bbox[1];
+                header.bbox[2] = info.bbox[2];
+                header.centre[0] = info.centre[0];
+                header.centre[1] = info.centre[1];
+                header.centre[2] = info.centre[2];
+
+
+                std::vector<binary::MaterialHeader> materialHeaders(materials.size());
+                std::vector<std::vector<binary::ShaderUniform>> materialUniforms(materials.size());
+                std::vector<std::vector<binary::ShaderSetting>> materialSettings(materials.size());
+                std::vector<size_t> materialHeaderBases(materials.size());
+                size_t materialsBase = align(meshDataBase + meshDataSize, 0x8);
+                header.material_offset = materialsBase;
+
+                size_t lastMaterialEnd = materialsBase;
+                for (int i = 0; i < materials.size(); i++) {
+                    binary::MaterialHeader materialHeader{};
+
+                    materialHeader.name_hash = materials[i]->name_hash;
+                    material_name_offsets[i] = stringSection.add(materials[i]->name);
+
+                    materialHeader.uniform_count = materials[i]->uniforms.size();
+                    materialHeader.setting_count = materials[i]->settings.size();
+
+                    materialHeader.unknown_0x314 = materials[i]->unknown_0x314;
+                    materialHeader.unknown_0x318 = materials[i]->unknown_0x318;
+                    materialHeader.unknown_0x31C = materials[i]->unknown_0x31C;
+                    materialHeader.unknown_0x324 = materials[i]->unknown_0x324;
+                    materialHeader.unknown_0x326 = materials[i]->unknown_0x326;
+
+                    for (int y = 0; y < 14; y++) {
+                        std::copy(
+                            std::begin(materials[i]->shaders[y].name_data),
+                            std::end(materials[i]->shaders[y].name_data),
+                            std::begin(materialHeader.shaders[y].name_data)
+                        );
+                    }
+
+                    std::vector<binary::ShaderUniform> uniforms(materials[i]->uniforms.size());
+                    for (int y = 0; y < materials[i]->uniforms.size(); y++) {
+                        binary::ShaderUniform uniform{};
+
+                        if (materials[i]->uniforms[y].uniformType() == "float") {
+                            binary::FloatPayload payload;
+                            auto value = std::get<std::vector<float>>(materials[i]->uniforms[y].value);
+
+                            std::copy(
+                                value.begin(),
+                                value.end(),
+                                payload.floats
+                            );
+
+                            uniform.float_count = value.size();
+                            uniform.payload.floats = payload;
+                        } else {
+                            auto value = std::get<std::string>(materials[i]->uniforms[y].value);
+                            binary::TexturePayload payload;
+
+                            payload.texture_name_offset = stringSection.add(value);
+                            payload.texture_name_length = value.size();
+                            payload.unknown_0xC = materials[i]->uniforms[y].unknown_0xC;
+
+                            uniform.float_count = 0;
+                            uniform.payload.texture = payload;
+                        }
+
+                        uniform.parameter_id = materials[i]->uniforms[y].parameter_id;
+
+                        uniform.unknown_0x14 = materials[i]->uniforms[y].unknown_0x14;
+                        uniform.unknown_0x18 = materials[i]->uniforms[y].unknown_0x18;
+                        uniform.unknown_0x1C = materials[i]->uniforms[y].unknown_0x1C;
+
+                        uniforms[y] = uniform;
+                    }
+                    materialUniforms[i] = uniforms;
+
+                    std::vector<binary::ShaderSetting> settings(materials[i]->settings.size());
+                    for (int y = 0; y < materials[i]->settings.size(); y++) {
+                        binary::ShaderSetting setting{};
+
+                        setting.payload = materials[i]->settings[y].payload;
+                        setting.parameter_id = materials[i]->settings[y].parameter_id;
+
+                        setting.unknown_0x12 = materials[i]->settings[y].unknown_0x12;
+                        setting.unknown_0x14 = materials[i]->settings[y].unknown_0x14;
+                        setting.unknown_0x18 = materials[i]->settings[y].unknown_0x18;
+                        setting.unknown_0x1C = materials[i]->settings[y].unknown_0x1C;
+
+                        settings[y] = setting;
+                    }
+                    materialSettings[i] = settings;
+
+                    materialHeaders[i] = materialHeader;
+                    materialHeaderBases[i] = lastMaterialEnd;
+                    lastMaterialEnd += sizeof(binary::MaterialHeader)
+                        + sizeof(binary::ShaderUniform) * materials[i]->uniforms.size()
+                        + sizeof(binary::ShaderSetting) * materials[i]->settings.size();
+                }
+
+                std::vector<binary::Ibpm> ibpms(skeleton.bones.size());
+                size_t ibpmsBase = align(lastMaterialEnd,0x10);
+                header.ibpm_offset = ibpmsBase;
+
+                for (int i = 0; i < skeleton.bones.size(); i++) {
+                    if (skeleton.bones[i]->is_geometry) {
+                        ibpms[i] = Ibpm();
+                    } else {
+                        ibpms[i] = ibpmFromMatrix(ComputeInverseBindPose(skeleton.bones[i]));
+                    }
+                }
+
+                size_t clutBase = ibpmsBase + sizeof(binary::Ibpm) * ibpms.size();
+                header.clut_offset = clutBase;
+
+                size_t stringsBase = clutBase + sizeof(binary::Clut);
+                header.strings_offset = stringsBase;
+
+                for (int i = 0; i < skeleton.bones.size(); i++) {
+                    bone_name_offsets[i] = stringSection.add(skeleton.bones[i]->name);
+                }
+
+                MemoryStream skeletonStream;
+                header.skeleton_file_size = skeleton.write(skeletonStream);
+                std::string skeletonBin = skeletonStream.str();
+                size_t skeletonBase = align(stringsBase + stringSection.data().size(),0x10) + 0x10;
+                header.skeleton_offset = skeletonBase;
+
+                //write
+                {
+                    f.seekp(base);
+                    f.write(reinterpret_cast<char*>(&header), sizeof(binary::GeomHeader));
+
+                    f.seekp(nameTableBase);
+                    f.write(reinterpret_cast<char*>(&nameTable), sizeof(binary::NameTableHeader));
+                    f.write(reinterpret_cast<char*>(bone_name_offsets.data()), sizeof(uint64_t) * bone_name_offsets.size());
+                    f.write(reinterpret_cast<char*>(material_name_offsets.data()), sizeof(uint64_t) * material_name_offsets.size());
+
+                    f.seekp(meshesBase);
+                    f.write(reinterpret_cast<char*>(meshHeaders.data()), sizeof(binary::MeshHeader) * meshHeaders.size());
+                    for (int i = 0; i < meshHeaders.size() ; i++) {
+                        f.seekp( align(f.tellp(),0x8) );
+                        f.write(reinterpret_cast<char*>(vertices[i].data()),vertices[i].size());
+                        f.seekp( align(f.tellp(),0x8) );
+                        f.write(reinterpret_cast<char*>(matrixPalettes[i].data()), sizeof(uint32_t) * matrixPalettes[i].size());
+                        f.seekp( align(f.tellp(),0x8) );
+                        f.write(reinterpret_cast<char*>(indices[i].data()), sizeof(uint16_t) * indices[i].size());
+                        f.seekp( align(f.tellp(),0x8) );
+                        f.write(reinterpret_cast<char*>(attributes[i].data()), sizeof(binary::MeshAttribute) * attributes[i].size());
+                    }
+
+                    f.seekp( align(f.tellp(),0x8) );
+                    for (int i = 0; i < materialHeaders.size(); i++) {
+                        f.seekp(materialHeaderBases[i]);
+                        f.write(reinterpret_cast<char*>(&materialHeaders[i]), sizeof(binary::MaterialHeader));
+                        f.write(reinterpret_cast<char*>(materialUniforms[i].data()), sizeof(binary::ShaderUniform) * materialUniforms[i].size());
+                        f.write(reinterpret_cast<char*>(materialSettings[i].data()), sizeof(binary::ShaderSetting) * materialSettings[i].size());
+                    }
+
+                    f.seekp(ibpmsBase);
+                    f.write(reinterpret_cast<char*>(ibpms.data()), sizeof(binary::Ibpm) * ibpms.size());
+
+                    f.seekp(clutBase);
+                    f.write(reinterpret_cast<char*>(&clut), sizeof(binary::Clut));
+
+                    f.seekp(stringsBase);
+                    f.write(stringSection.data().data(),stringSection.data().size());
+
+                    f.seekp(skeletonBase);
+                    f.write(skeletonBin.data(),skeletonBin.size());
+                }
+            }
+
+            Geom copy() {
+                MemoryStream geomStream;
+                write(geomStream);
+                Geom geom;
+                std::istringstream str(geomStream.str());
+                geom.read(str);
+                return geom;
+            }
+
+    };
+}

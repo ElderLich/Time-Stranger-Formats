@@ -1,0 +1,375 @@
+#include <string>
+#include <fstream>
+#include <variant>
+#include <type_traits>
+
+// Assuming mesh.cpp/h includes the InlineVec definition from the previous step
+#include "../geom/mesh.cpp"
+#include "bindings.hpp"
+
+using namespace dsts::geom;
+using namespace dsts::geom::binary;
+
+PYBIND11_MAKE_OPAQUE(std::vector<Vertex>)
+PYBIND11_MAKE_OPAQUE(std::vector<uint16_t>)
+
+// ---------- Convert InlineVec → NumPy array ----------
+struct AttributeToNumpy {
+    py::object owner;
+
+    AttributeToNumpy(py::object owner_) : owner(std::move(owner_)) {}
+
+    py::object operator()(const std::monostate&) const {
+        return py::none();
+    }
+
+    template <typename VecT>
+    py::object operator()(const VecT& vec) const {
+        using RawT = std::remove_cv_t<std::remove_pointer_t<decltype(vec.data())>>;
+
+        // shape and strides
+        std::vector<size_t> shape = { static_cast<size_t>(vec.size()) };
+        std::vector<size_t> strides = { static_cast<size_t>(sizeof(RawT)) };
+
+        if constexpr (std::is_same_v<RawT, float16>) {
+            // For float16 we treat the underlying storage as uint16_t
+            auto data_ptr = reinterpret_cast<const uint16_t*>(vec.data());
+            // dtype "e" is NumPy half — pybind11 accepts dtype string
+            return py::array(
+                py::dtype("e"),
+                shape,
+                strides,
+                const_cast<uint16_t*>(data_ptr), // py::array takes non-const void*
+                owner // owner keeps the parent (and thus the memory) alive
+            );
+        } else {
+            return py::array(
+                py::dtype::of<RawT>(),
+                shape,
+                strides,
+                const_cast<RawT*>(vec.data()),
+                owner
+            );
+        }
+    }
+};
+
+// ---------- Convert NumPy array → InlineVec<T> ----------
+template <typename T>
+void numpy_to_inline(InlineVec<T>& out_vec, const py::array& arr) {
+    if (!py::dtype::of<T>().is(arr.dtype())) {
+        throw std::runtime_error("Incorrect dtype for vertex attribute assignment");
+    }
+
+    auto size = arr.size();
+    if (size > 4) {
+        throw std::runtime_error("Vertex attributes cannot have more than 4 elements");
+    }
+
+    out_vec.resize(size);
+    std::memcpy(out_vec.data(), arr.data(), size * sizeof(T));
+}
+
+// Specialization/Overload for float16
+inline void numpy_to_inline_f16(InlineVec<float16>& out_vec, const py::array& arr) {
+    if (arr.dtype().kind() != 'f' || arr.itemsize() != 2) {
+        throw std::runtime_error("Expected float16 array (dtype='e')");
+    }
+
+    auto size = arr.size();
+    if (size > 4) {
+        throw std::runtime_error("Vertex attributes cannot have more than 4 elements");
+    }
+
+    out_vec.resize(size);
+    std::memcpy(out_vec.data(), arr.data(), size * sizeof(uint16_t));
+}
+
+// ---------- Assign NumPy array → VertexAttribute ----------
+void assign_numpy(VertexAttribute& attr, const py::object& obj) {
+    if (obj.is_none()) {
+        attr.data = std::monostate{};
+        return;
+    }
+
+    py::array arr = py::cast<py::array>(obj);
+
+    // Basic sanity check on dtype kinds
+    switch (arr.dtype().kind()) {
+        case 'u':  // unsigned int
+        case 'i':  // signed int
+        case 'f':  // float
+            break;
+        default:
+            throw std::runtime_error("Unsupported dtype for vertex attribute");
+    }
+
+    // Visit the variant to write to the correct InlineVec type
+    std::visit([&](auto& current) {
+        using VecType = std::decay_t<decltype(current)>;
+
+        if constexpr (std::is_same_v<VecType, std::monostate>) {
+            // If the attribute is currently empty (monostate), we don't know 
+            // which numeric type to create. The user must initialize the VertexAttribute 
+            // with a type before assigning raw data, or use the Python constructor.
+            throw std::runtime_error("Cannot assign numpy array to an empty/uninitialized VertexAttribute. Initialize it with a type first.");
+        }
+        else {
+            // Deduce T from InlineVec<T>
+            using T = std::remove_pointer_t<decltype(current.data())>;
+
+            if constexpr (std::is_same_v<T, float16>) {
+                numpy_to_inline_f16(current, arr);
+            } else {
+                numpy_to_inline<T>(current, arr);
+            }
+        }
+    }, attr.data);
+}
+
+// Convenience wrapper
+static py::object to_numpy(py::object &self, const VertexAttribute& a) {
+    return std::visit(AttributeToNumpy(self), a.data);
+}
+
+// ---------- Property Binder Helper ----------
+template <typename VertexType, typename MemberType>
+void def_vertex_property(py::class_<VertexType>& cls, const char* name, MemberType VertexType::*member) {
+    cls.def_property(
+        name,
+        // Getter
+        [member](py::object &py_self) {
+            auto& v = py_self.cast<VertexType&>();
+            return to_numpy(py_self, v.*member);
+        },
+        // Setter
+        [member](VertexType& v, py::object a) {
+            if constexpr (std::is_same_v<MemberType, VertexAttribute>) {
+                if (py::isinstance<VertexAttribute>(a)) {
+                    v.*member = a.cast<VertexAttribute>();
+                    return;
+                }
+            }
+            assign_numpy(v.*member, a);
+        }
+    );
+}
+
+// ---------- Module Definition ----------
+void bind_mesh(py::module_ &m) {
+    // float16 binding
+    py::class_<float16>(m, "float16")
+        .def(py::init<>())
+        .def(py::init<float>())
+        .def("__float__", [](const float16 &h){ return static_cast<float>(h); })
+        .def("__repr__", [](const float16 &h){ return "<float16 " + std::to_string(static_cast<float>(h)) + ">"; });
+
+    // VertexAttribute binding
+    py::class_<VertexAttribute>(m, "VertexAttribute")
+        .def(py::init<>())
+        .def(py::init<std::string, size_t>())
+        .def("as_numpy", [](py::object self) {
+            VertexAttribute &attr = self.cast<VertexAttribute&>();
+            return to_numpy(self, attr);
+        })
+        .def("assign",   [](VertexAttribute& a, py::object v) { assign_numpy(a, v); })
+        .def("is_empty", &VertexAttribute::isEmpty)
+        .def("__repr__", [](py::object& self) {
+            VertexAttribute &attr = self.cast<VertexAttribute&>();
+            auto np = to_numpy(self, attr);
+            return std::string("<VertexAttribute :") + py::repr(np).cast<std::string>() + ">";
+        });
+
+    // Vertex binding
+    py::class_<Vertex> pyVertex(m, "Vertex");
+    pyVertex.def(py::init<>());
+
+    def_vertex_property(pyVertex, "position", &Vertex::position);
+    def_vertex_property(pyVertex, "normal",   &Vertex::normal);
+    def_vertex_property(pyVertex, "tangent",  &Vertex::tangent);
+    def_vertex_property(pyVertex, "binormal", &Vertex::binormal);
+    def_vertex_property(pyVertex, "uv1",      &Vertex::uv1);
+    def_vertex_property(pyVertex, "uv2",      &Vertex::uv2);
+    def_vertex_property(pyVertex, "uv3",      &Vertex::uv3);
+    def_vertex_property(pyVertex, "color",    &Vertex::color);
+    def_vertex_property(pyVertex, "index",    &Vertex::index);
+    def_vertex_property(pyVertex, "weight",   &Vertex::weight);
+    
+    // Add repr for debugging
+    pyVertex.def("__repr__", [](py::object& self) {
+        Vertex &v = self.cast<Vertex&>();
+        auto np = to_numpy(self, v.position);
+        return std::string("<Vertex pos=") + (v.position.isEmpty() ? "None" : py::repr(np).cast<std::string>()) + ">";
+    });
+
+    // Triangle binding
+    py::class_<Triangle>(m, "Triangle")
+        .def(py::init<>())
+        .def_readwrite("v0", &Triangle::v0)
+        .def_readwrite("v1", &Triangle::v1)
+        .def_readwrite("v2", &Triangle::v2)
+        .def_readwrite("i0", &Triangle::i0)
+        .def_readwrite("i1", &Triangle::i1)
+        .def_readwrite("i2", &Triangle::i2)
+        .def("__repr__", [](const Triangle& t) {
+            return "<Triangle indices=(" + 
+                   std::to_string(t.i0) + ", " + 
+                   std::to_string(t.i1) + ", " + 
+                   std::to_string(t.i2) + ")>";
+        });
+
+    // Vector bindings
+    py::bind_vector<std::vector<Vertex>>(m, "VertexList");
+    py::bind_vector<std::vector<uint16_t>>(m, "IndexList");
+
+    // MeshAttribute binding
+    py::class_<MeshAttribute>(m, "MeshAttribute")
+        .def(py::init<>())
+        .def_readwrite("count", &MeshAttribute::count)
+        .def_readwrite("offset", &MeshAttribute::offset)
+        .def_property("atype", [](const MeshAttribute &m){return getAtype(m);}, [](MeshAttribute &m, std::string &s){m.atype = parseAtype(s);})
+        .def_property("dtype", [](const MeshAttribute &m){return getDtype(m);}, [](MeshAttribute &m, std::string &s){m.dtype = parseDtype(s);})
+        .def("__repr__", [](const MeshAttribute &m){
+            return "<MeshAttribute: "+ getAtype(m) +">";
+        });
+
+    // Mesh binding
+    py::class_<Mesh>(m, "Mesh")
+        .def(py::init<>())
+        .def("set_vertex_count", [](Mesh &m, uint64_t count){
+            m.vertices.clear();
+            m.vertices.resize(count);
+        })
+        .def("set_position",[](Mesh &m, py::array_t<float, py::array::c_style | py::array::forcecast> positions){
+            if (positions.ndim() != 2 ||positions.shape(1) != 3) {
+                throw std::runtime_error("positions must be a (N, 3) float16 array");
+            }
+            size_t vertexCount = positions.shape(0);
+            const float* ptr = (positions.data());
+            for (size_t i = 0; i < vertexCount; ++i) {
+                const float* dataPtr = ptr + 3 * i;
+                m.vertices[i].position.setFromPtr<float>((const char *)dataPtr, 3);
+            }
+        })
+        .def("set_normal",[](Mesh &m, py::array normals){
+            if (normals.ndim() != 2 || normals.shape(1) != 3 || !normals.dtype().is(py::dtype("float16")) ) {
+                throw std::runtime_error("normals must be a (N, 3) float16 array");
+            }
+            size_t vertexCount = normals.shape(0);
+            const float16* ptr = reinterpret_cast<const float16*>(normals.data());
+            for (size_t i = 0; i < vertexCount; ++i) {
+                const float16* dataPtr = ptr + 3 * i;
+                m.vertices[i].normal.setFromPtr<float16>((const char *)dataPtr, 3);
+            }
+        })
+        .def("set_uv",[](Mesh &m, int uv, py::array_t<float, py::array::c_style | py::array::forcecast> uvs){
+            if (uvs.ndim() != 2 || uvs.shape(1) != 2) {
+                throw std::runtime_error("uvs must be a (N, 2) float32 array");
+            }
+            size_t vertexCount = uvs.shape(0);
+            float* ptr = uvs.mutable_data();
+            for (size_t i = 0; i < vertexCount; ++i) {
+                const float* dataPtr = ptr + 2 * i;
+                switch (uv) {
+                    case 1: m.vertices[i].uv1.setFromPtr<float>((const char *)dataPtr, 2); break;
+                    case 2: m.vertices[i].uv2.setFromPtr<float>((const char *)dataPtr, 2); break;
+                    case 3: m.vertices[i].uv3.setFromPtr<float>((const char *)dataPtr, 2); break;
+                }
+            }
+        })
+        .def("set_color",[](Mesh &m, py::array_t<uint8_t, py::array::c_style | py::array::forcecast> colors){
+            if (colors.ndim() != 2 || colors.shape(1) != 4) {
+                throw std::runtime_error("colors must be a (N, 4) uint8 array");
+            }
+            size_t vertexCount = colors.shape(0);
+            uint8_t* ptr = colors.mutable_data();
+            for (size_t i = 0; i < vertexCount; ++i) {
+                const uint8_t* dataPtr = ptr + 4 * i;
+                m.vertices[i].color.setFromPtr<uint8_t>((const char *)dataPtr, 4);
+            }
+        })
+        .def("set_tangent",[](Mesh &m, py::array tangents){
+            if (tangents.ndim() != 2 || tangents.shape(1) != 4 || !tangents.dtype().is(py::dtype("float16")) ) {
+                throw std::runtime_error("tangents must be a (N, 4) float16 array");
+            }
+            size_t vertexCount = tangents.shape(0);
+            const float16* ptr = reinterpret_cast<const float16*>(tangents.mutable_data());
+            for (size_t i = 0; i < vertexCount; ++i) {
+                const float16* dataPtr = ptr + 4 * i;
+                m.vertices[i].tangent.setFromPtr<float16>((const char *)dataPtr, 4);
+            }
+        })
+        .def("set_index",[](Mesh &m, py::array_t<uint8_t, py::array::c_style | py::array::forcecast> indices){
+            if (indices.ndim() != 2 || indices.shape(1) > 4) {
+                throw std::runtime_error("indices must be an (N, <=4) uint8 array");
+            }
+            size_t vertexCount = indices.shape(0);
+            size_t groupCount = indices.shape(1);
+            uint8_t* ptr = indices.mutable_data();
+            for (size_t i = 0; i < vertexCount; ++i) {
+                const uint8_t* dataPtr = ptr + groupCount * i;
+                m.vertices[i].index.setFromPtr<uint8_t>((const char *)dataPtr, groupCount);
+            }
+        })
+        .def("set_weight",[](Mesh &m, py::array weights){
+            if (weights.ndim() != 2 || weights.shape(1) > 4 || !weights.dtype().is(py::dtype("float16")) ) {
+                throw std::runtime_error("weights must be an (N, <=4) float16 array");
+            }
+            size_t vertexCount = weights.shape(0);
+            size_t groupCount = weights.shape(1);
+            const float16* ptr =  reinterpret_cast<const float16*>(weights.mutable_data());
+            for (size_t i = 0; i < vertexCount; ++i) {
+                const float16* dataPtr = ptr + groupCount * i;
+                m.vertices[i].weight.setFromPtr<float16>((const char *)dataPtr, groupCount);
+            }
+        })
+        .def_readwrite("mesh_attributes", &Mesh::meshAttributes)
+        .def_readwrite("bytes_per_vertex", &Mesh::bytes_per_vertex)
+        .def_property("name", 
+            [](const Mesh &m) { return m.name; }, 
+            &Mesh::setName)
+        .def_readonly("name_hash", &Mesh::name_hash)
+        .def_readwrite("flag_0", &Mesh::flag_0)
+        .def_readwrite("flag_1", &Mesh::flag_1)
+        .def_readwrite("flag_2", &Mesh::flag_2)
+        .def_readwrite("flag_3", &Mesh::flag_3)
+        .def_readwrite("flag_4", &Mesh::flag_4)
+        .def_readwrite("flag_5", &Mesh::flag_5)
+        .def_readwrite("flag_6", &Mesh::flag_6)
+        .def_readwrite("flag_7", &Mesh::flag_7)
+        .def_property("primitive", [](const Mesh &m){
+            return (uint16_t)m.primitive;
+        }, [](Mesh &m, uint16_t val){
+            m.primitive = (binary::PrimitiveType)val;
+        })
+        .def_property("vertices",
+            make_vector_property(&Mesh::vertices).first,
+            make_vector_property(&Mesh::vertices).second
+        )
+        .def_property("indices",
+            make_vector_property(&Mesh::indices).first,
+            make_vector_property(&Mesh::indices).second
+        )
+        .def_property("matrix_palette",
+            make_vector_property(&Mesh::matrix_palette).first,
+            make_vector_property(&Mesh::matrix_palette).second
+        )
+        .def_readwrite("material", &Mesh::material)
+        .def("get_indices", &Mesh::get_indices_as_triangle_list)
+        .def("pack_vertices", [](const Mesh &m) {
+            auto result = buildMeshAttributes(m.vertices);
+            std::string packed = packVertices(result.attributes, m.vertices, result.totalSizeBytes);
+            return std::make_tuple(result.attributes, result.totalSizeBytes, py::bytes(packed));
+        })
+        .def("unpack_vertices", [](Mesh &m,
+            const std::vector<binary::MeshAttribute> &attributes, 
+            const size_t &vertexStride, 
+            const py::bytes &packedVertices
+        ){
+            char* data;
+            Py_ssize_t size;
+            PYBIND11_BYTES_AS_STRING_AND_SIZE(packedVertices.ptr(), &data, &size);
+            unpackVertices(m.vertices, attributes, data, size, vertexStride);
+        })
+        .def("__repr__",[](const Mesh &m){ return "<Mesh: " + m.name + ">"; });
+}
