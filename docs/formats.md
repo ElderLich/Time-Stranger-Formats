@@ -19,7 +19,8 @@ unknown fields remain explicitly unknown.
 | Mesh controllers | Explicitly unsupported | Mandatory rejection even when collecting semantic diagnostics. |
 | NLST | Reference add-on writes companion name lists | Not a general NLST parser; broader type coverage and ordering need separate validation. |
 | ANIM | Not implemented here | Time Stranger Importer supplies its separate animation serializer. |
-| SPRK / SPAK v140 | Dependency-free [typed source-preserving editing](spark-editing.md) of supported common transforms/timing, resources and fixed-count constant/linear keys; graph validation and atomic output | No emitter-module simulation, graph creation/deletion, socket-owner editing or complete particle preview. Unknown nodes/chunks are retained read-only. Effect BSON remains separate research tooling. |
+| SPRK / SPAK v140 | Dependency-free [typed source-preserving editing](spark-editing.md) of supported common transforms/timing, resources and fixed-count constant/linear keys; graph validation and atomic output | No emitter-module simulation, graph creation/deletion, socket-owner editing or complete particle preview. Unknown nodes/chunks are retained read-only. |
+| Effect BSON v10 | [Typed existing duration/hit/audio/drawable fields and inter-set attachment editing](effect-bson.md), exact opaque/order/pool preservation and atomic output | No new event/set construction, external caster/target linking, full event simulation or native concurrency editor. Socket edits require the selected owner's actual rig inventory. |
 | Math | Existing transforms and X-mirror; safe inverse failure | Mirror-Y/mirror-Z TODOs have not been promoted to supported behavior. |
 
 The [scene-record documentation](scene-records.md) lists native functions,
@@ -35,7 +36,7 @@ that differ from recomputed bounds; it does not bypass mandatory safety checks
 or authorize dropping an unsupported section. Inspect `get_error_list()` after
 using collection mode.
 
-GEOM file export serializes and validates into memory, writes/flushed-syncs a
+GEOM and standalone skeleton file exports serialize and validate into memory, write/flushed-sync a
 temporary sibling, then atomically replaces the destination. Failed writes or
 replacement leave the original intact. SPRK additionally defaults to rejecting
 existing outputs and supports an expected SHA256 guard. Python mesh/material/CLUT
@@ -75,6 +76,10 @@ Validated on 2026-11-14 with CPython 3.13.14, pybind11 3.0.4 and MSVC 19.44:
   timing/resource/key edits, truncation/graph guards and atomic failure cleanup.
   All four real fixtures exported and reopened with untouched bytes identical;
   three are ordinary native effects, one is the Revision 14 persistent effect.
+- **8 effect BSON tests and three real fixtures:** ordered/opaque retention,
+  supported scalar and pooled-string edits, extended lengths, attachment
+  validation, atomic failures; scoped duration edit/export/reopen on chr395,
+  chr039 and the Revision14 248-set root with all other bytes identical.
 - **10 material-contract tests:** all typed descriptors, invalid static texture
   rejection, explicit numeric/setting checks, independent complete material
   cloning, exact pass/metadata round trips including nonzero unused numeric

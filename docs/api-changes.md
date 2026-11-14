@@ -1,11 +1,14 @@
 # Backend 0.2 compatibility notes
 
-- `Geom.to_file` atomically replaces its destination after serialization,
+- `Geom.to_file` and `Skeleton.to_file` share the same atomic writer after serialization,
   buffered writing, flush and sync. IO failures propagate without truncating the
   previous file. Existing replacement behavior remains explicit in this API.
 - Dependency-free `addon/spark.py` exposes API version 1 for bounded SPAK v140
   semantic editing. It is shipped as identical source in the maintained
   importer; it does not change the C++ extension ABI. See [SPRK API](spark-editing.md).
+- `addon/effect_bson.py` adds source-preserving existing effect field edits and
+  validated inter-set attachments. It reuses the SPRK module's atomic output
+  helper. See [effect BSON API](effect-bson.md) for boundaries and evidence.
 
 - Shader parameter names now match the supported native executable. Numeric
   IDs retain their original meaning. Consumers should use IDs for texture

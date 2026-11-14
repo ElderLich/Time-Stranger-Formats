@@ -23,6 +23,8 @@ home for the backend used by
 - Edits established SPAK v140 transform ranges, timing, resources and fixed-size
   curves through the dependency-free [SPRK API](docs/spark-editing.md), preserving
   every unrelated source byte.
+- Edits existing native effect [BSON timing, sound and drawable fields](docs/effect-bson.md)
+  and validates inter-set socket attachment changes against a supplied owner rig.
 - Includes ImHex patterns and shader parameter definitions for format research.
 
 This is the format backend. For the complete Blender workflow, animations and
@@ -81,6 +83,8 @@ These checks do not establish complete format support or game acceptance.
 The SPRK API additionally passes eight malformed-input/edit/write-failure tests
 and scoped edit/export/reopen checks on three native donors and the retained
 Revision 14 actor effect. It does not implement a complete particle simulator.
+The effect BSON API has eight tests and three actual edit/export/reopen fixtures.
+Both native `Geom.to_file` and `Skeleton.to_file` use atomic file replacement.
 Mesh controllers and edits to flagged skeleton hierarchies fail explicitly;
 bounds are still recomputed on export. The reference add-on blocks exports
 that would discard scene or binding metadata. Use the maintained importer for

@@ -3,6 +3,7 @@
 
 #include "../geom/geom.cpp"
 #include "bindings.hpp"
+#include "atomic_file.hpp"
 
 using namespace dsts::geom;
 using namespace dsts::geom::binary;
@@ -119,41 +120,7 @@ void bind_geom(py::module_ &m) {
         .def("to_file", [](Geom &g, py::str filename){
             MemoryStream staged;
             g.write(staged);
-            const auto bytes=staged.str();
-            // Serialize before touching disk, then publish a flushed sibling.
-            // Python's os.replace supplies replace-existing atomic semantics on
-            // Windows as well as POSIX; filesystem::rename differs on Windows.
-            // Keep the GIL: this code calls Python file APIs and propagates their
-            // useful PermissionError/OSError diagnostics without truncation.
-            const auto os=py::module_::import("os");
-            const auto tempfile=py::module_::import("tempfile");
-            const auto path=os.attr("path");
-            const auto destination=path.attr("abspath")(filename);
-            const auto pair=tempfile.attr("mkstemp")(
-                py::arg("dir")=path.attr("dirname")(destination),
-                py::arg("prefix")=".dsts-geom-",py::arg("suffix")=".tmp");
-            py::object descriptor=pair[py::int_(0)];
-            const py::object temporary=pair[py::int_(1)];
-            py::object file=py::none();
-            try {
-                file=os.attr("fdopen")(descriptor,"wb");
-                descriptor=py::none();
-                file.attr("write")(py::bytes(bytes));
-                file.attr("flush")();
-                os.attr("fsync")(file.attr("fileno")());
-                file.attr("close")();
-                file=py::none();
-                os.attr("replace")(temporary,destination);
-            } catch (...) {
-                // Cleanup is best-effort; never mask the original failure.
-                try {
-                    if(!file.is_none()) file.attr("close")();
-                    if(!descriptor.is_none()) os.attr("close")(descriptor);
-                } catch (...) { PyErr_Clear(); }
-                try { os.attr("unlink")(temporary); }
-                catch (...) { PyErr_Clear(); }
-                throw;
-            }
+            dsts::python::atomic_write(filename,staged.str());
         })
         .def("copy", &Geom::copy);
 }

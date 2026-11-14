@@ -4,6 +4,7 @@
 #include "../utils/memory_buffer.cpp"
 #include "../geom/skeleton.cpp"
 #include "bindings.hpp"
+#include "atomic_file.hpp"
 
 using namespace dsts::geom;
 using namespace dsts::geom::binary;
@@ -113,11 +114,6 @@ void bind_skeleton(py::module_ &m) {
         .def("to_file", [](Skeleton &s, py::str filename){
             MemoryStream staged;
             s.write(staged);
-            const auto bytes=staged.str();
-            std::ofstream f;
-            f.exceptions(std::ios::failbit | std::ios::badbit);
-            f.open(std::string(filename), std::ios::binary);
-            f.write(bytes.data(),static_cast<std::streamsize>(bytes.size()));
-            f.close();
+            dsts::python::atomic_write(filename,staged.str());
         }, py::arg("data"));
 }

@@ -1,7 +1,8 @@
 # Requirements for a future shared effect codec
 
-**SPRK/SPAK now has a bounded maintained Python editing API; effect BSON remains
-research-only.** See [current SPRK editing](spark-editing.md) for actual coverage.
+**SPRK/SPAK and effect BSON now have bounded maintained Python editing APIs.**
+See [current SPRK editing](spark-editing.md) and [effect BSON](effect-bson.md)
+for actual coverage.
 This document retains the broader requirements exposed by native cinematic
 research, including contracts that remain unimplemented. Existing GEOM,
 material, animation-adapter and upstream

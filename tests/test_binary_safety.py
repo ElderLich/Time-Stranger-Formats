@@ -176,18 +176,19 @@ class SafetyTests(unittest.TestCase):
     def test_atomic_file_publication_preserves_destination_on_io_failure(self):
         geom = example()
         with tempfile.TemporaryDirectory() as folder:
-            output = Path(folder) / 'existing-雪.geom'
-            original = b'preserved original'
-            output.write_bytes(original)
-            for operation in ('replace', 'fsync'):
-                with self.subTest(operation=operation):
-                    with patch('os.' + operation, side_effect=OSError('injected write failure')):
-                        with self.assertRaisesRegex(OSError, 'injected write failure'):
-                            geom.to_file(str(output))
-                    self.assertEqual(output.read_bytes(), original)
-                    self.assertEqual(list(Path(folder).iterdir()), [output])
-            geom.to_file(str(output))
-            self.assertEqual(output.read_bytes(), geom.to_bytes())
+            for document in (geom, geom.skeleton):
+                output = Path(folder) / 'existing-雪.native'
+                original = b'preserved original'
+                output.write_bytes(original)
+                for operation in ('replace', 'fsync'):
+                    with self.subTest(document=type(document).__name__, operation=operation):
+                        with patch('os.' + operation, side_effect=OSError('injected write failure')):
+                            with self.assertRaisesRegex(OSError, 'injected write failure'):
+                                document.to_file(str(output))
+                        self.assertEqual(output.read_bytes(), original)
+                        self.assertEqual(list(Path(folder).iterdir()), [output])
+                document.to_file(str(output))
+                self.assertEqual(output.read_bytes(), document.to_bytes())
 
     def test_contiguous_palette_flag_matches_native_upload(self):
         geom=example(); root=geom.skeleton.bones[0]
