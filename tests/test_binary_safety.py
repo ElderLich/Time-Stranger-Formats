@@ -49,6 +49,24 @@ def preserved_sections(data):
     sections['parent_pairs']=list(struct.iter_unpack('<HH',data[skeleton+64:skeleton+64+4*pair_count]))
     start=skeleton+28+struct.unpack_from('<I',data,skeleton+28)[0]
     sections['parent_table']=list(struct.unpack_from('<'+'H'*bone_count,data,start))
+    # Independent material contract oracle. Texture string offsets can move
+    # with layout; compare their resolved names and retain all other bytes.
+    material_count=struct.unpack_from('<H',data,6)[0]
+    position=struct.unpack_from('<Q',data,0x50)[0]
+    strings=struct.unpack_from('<Q',data,0x78)[0]
+    materials=[]
+    for _ in range(material_count):
+        header=data[position:position+0x328];position+=0x328
+        uniforms=[]
+        for _ in range(header[0x320]):
+            raw=data[position:position+32];position+=32
+            if struct.unpack_from('<H',raw,18)[0]:uniforms.append(raw)
+            else:
+                offset,length=struct.unpack_from('<QI',raw)
+                uniforms.append((data[strings+offset:strings+offset+length],raw[8:]))
+        settings=data[position:position+32*header[0x321]];position+=32*header[0x321]
+        materials.append((header,uniforms,settings))
+    sections['materials']=materials
     return sections
 
 
@@ -299,6 +317,7 @@ def corpus(root, limit, output, collect=False,scene_fixtures=False):
     print(json.dumps({k:v for k,v in report.items() if k!='results'}))
     for row in rows:
         if not row['ok']:print(row['file'],row['error'][:300])
+    return report['passed']==report['sampled']
 
 
 if __name__=='__main__':
@@ -310,5 +329,5 @@ if __name__=='__main__':
     parser.add_argument('--collect-semantic',action='store_true')
     parser.add_argument('--scene-fixtures',action='store_true',help='Use seven camera/light/material-float fixtures from the extracted corpus')
     args=parser.parse_args();sys.path.insert(0,str(args.module_dir.resolve()));formats=importlib.import_module('dsts_formats')
-    if args.corpus:corpus(args.corpus,args.limit,args.report,args.collect_semantic,args.scene_fixtures)
+    if args.corpus:sys.exit(0 if corpus(args.corpus,args.limit,args.report,args.collect_semantic,args.scene_fixtures) else 1)
     else:unittest.main(argv=[sys.argv[0]])

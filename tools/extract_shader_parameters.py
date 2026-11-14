@@ -1,7 +1,8 @@
 """Rebuild the normalized parameter table from the verified native executable.
 
-No executable bytes are stored in the output: only enum/name definitions and
-the executable fingerprint. Unknown builds require a new verified profile.
+Only normalized parameter definitions and the executable fingerprint are stored.
+Unknown builds require a new verified profile. Native descriptor flags retain
+their exact values; uninterpreted fields are not assigned invented semantics.
 """
 
 from __future__ import annotations
@@ -50,10 +51,21 @@ def extract(executable: Path, output: Path) -> dict:
         if not name:
             raise ValueError(f"Empty shader parameter name at {index}")
         ids.add(parameter_id)
-        parameters.append({"id": parameter_id, "name": name})
-        normalized.extend(struct.pack("<I20x32s", parameter_id, name.encode("ascii")))
+        scope, unknown_45, type_code, unknown_47 = record[44:48]
+        if scope not in (0, 1):
+            raise ValueError(f"Invalid shader parameter scope at {index}")
+        unknown_48, unknown_52 = struct.unpack_from('<II', record, 48)
+        parameters.append({"id": parameter_id, "name": name,
+                           "global_scope": bool(scope), "type_code": type_code,
+                           "unknown_0x2D": unknown_45, "unknown_0x2F": unknown_47,
+                           "unknown_0x30": unknown_48, "unknown_0x34": unknown_52})
+        normalized.extend(struct.pack("<I4BII8x32s", parameter_id, scope, unknown_45,
+                                      type_code, unknown_47, unknown_48, unknown_52,
+                                      name.encode("ascii")))
     manifest = {"executable_sha256": EXE_SHA256, "table_va": hex(TABLE_VA).upper().replace("0X", "0x"),
                 "native_record_bytes": 56, "native_name_offset": 8, "native_id_offset": 40,
+                "native_scope_offset": 44, "native_type_code_offset": 46,
+                "normalized_schema": "dsts-parameter-descriptor-v1",
                 "generated_table_sha256": hashlib.sha256(normalized).hexdigest(), "parameters": parameters}
     output.mkdir(parents=True, exist_ok=True)
     (output / "shader_params.bin").write_bytes(normalized)

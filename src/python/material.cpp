@@ -11,6 +11,25 @@ PYBIND11_MAKE_OPAQUE(std::vector<dsts::geom::ShaderUniform>)
 PYBIND11_MAKE_OPAQUE(std::vector<dsts::geom::ShaderSetting>)
 
 void bind_material(py::module_ &m) {
+    py::class_<ShaderParamDef>(m,"ShaderParameter")
+        .def_readonly("id",&ShaderParamDef::id)
+        .def_property_readonly("name",[](const ShaderParamDef& d){return std::string(d.name);})
+        .def_readonly("type_code",&ShaderParamDef::type_code)
+        .def_property_readonly("global_scope",[](const ShaderParamDef& d){return bool(d.global_scope);})
+        .def_property_readonly("scope",[](const ShaderParamDef& d){return d.global_scope?"global":"material";})
+        .def_property_readonly("kind",&shaderParameterKind)
+        .def_property_readonly("component_count",[](const ShaderParamDef& d)->py::object{
+            if((d.type_code>=1 && d.type_code<=4) || d.type_code==16) return py::int_(d.type_code);
+            return py::none();
+        })
+        .def_readonly("unknown_0x2D",&ShaderParamDef::unknown_0x2D)
+        .def_readonly("unknown_0x2F",&ShaderParamDef::unknown_0x2F)
+        .def_readonly("unknown_0x30",&ShaderParamDef::unknown_0x30)
+        .def_readonly("unknown_0x34",&ShaderParamDef::unknown_0x34);
+    m.def("shader_parameter",[](uint32_t id){return shaderParameter(id);},py::arg("id"));
+    m.def("shader_parameter",[](const std::string& name){return shaderParameter(name);},py::arg("name"));
+    m.def("validate_material_texture_binding",[](uint32_t id){validateMaterialTextureBinding(shaderParameter(id));},py::arg("id"));
+    m.def("validate_material_texture_binding",[](const std::string& name){validateMaterialTextureBinding(shaderParameter(name));},py::arg("name"));
     //Shader
     py::class_<dsts::geom::Shader>(m, "Shader")
         .def_property(
@@ -24,6 +43,9 @@ void bind_material(py::module_ &m) {
     py::class_<dsts::geom::ShaderUniform>(m, "ShaderUniform")
         .def(py::init<>())
         .def_readwrite("unknown_0xC", &dsts::geom::ShaderUniform::unknown_0xC)
+        .def_readwrite("unknown_0x14", &dsts::geom::ShaderUniform::unknown_0x14)
+        .def_readwrite("unknown_0x18", &dsts::geom::ShaderUniform::unknown_0x18)
+        .def_readwrite("unknown_0x1C", &dsts::geom::ShaderUniform::unknown_0x1C)
         .def_property("parameter_id",
             &dsts::geom::ShaderUniform::getParameterId,
             &dsts::geom::ShaderUniform::setParameterId)
@@ -70,6 +92,9 @@ void bind_material(py::module_ &m) {
     py::class_<dsts::geom::ShaderSetting>(m, "ShaderSetting")
         .def(py::init<>())
         .def_readwrite("unknown_0x12", &dsts::geom::ShaderSetting::unknown_0x12)
+        .def_readwrite("unknown_0x14", &dsts::geom::ShaderSetting::unknown_0x14)
+        .def_readwrite("unknown_0x18", &dsts::geom::ShaderSetting::unknown_0x18)
+        .def_readwrite("unknown_0x1C", &dsts::geom::ShaderSetting::unknown_0x1C)
         .def_property("parameter_id",
             &dsts::geom::ShaderSetting::getParameterId,
             &dsts::geom::ShaderSetting::setParameterId)
@@ -103,6 +128,9 @@ void bind_material(py::module_ &m) {
     // Material
     py::class_<Material, std::shared_ptr<Material>>(m, "Material")
         .def(py::init<>())
+        .def("clone",&Material::clone)
+        .def("validate_parameter_types",&Material::validateParameterTypes)
+        .def_property_readonly("active_shader_slots",&Material::activeShaderSlots)
         .def_readwrite("unknown_0x314", &Material::unknown_0x314)
         .def_readwrite("unknown_0x318", &Material::unknown_0x318)
         .def_readwrite("unknown_0x31C", &Material::unknown_0x31C)

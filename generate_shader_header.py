@@ -14,16 +14,23 @@ def validate(data: bytes) -> None:
     if not data or len(data) % 56:
         raise ValueError("Shader table must contain complete 56-byte records")
     ids: set[int] = set()
+    names: set[str] = set()
     for offset in range(0, len(data), 56):
         parameter_id = struct.unpack_from("<I", data, offset)[0]
         if parameter_id in ids or parameter_id > 0xFFFF:
             raise ValueError(f"Invalid or duplicate parameter ID {parameter_id}")
         ids.add(parameter_id)
+        if data[offset + 4] not in (0, 1):
+            raise ValueError(f"Parameter {parameter_id} has an invalid scope flag")
+        if any(data[offset + 16:offset + 24]):
+            raise ValueError(f"Parameter {parameter_id} has nonzero normalized reserved bytes")
         raw_name = data[offset + 24:offset + 56]
         if b"\0" not in raw_name:
             raise ValueError(f"Parameter {parameter_id} has no terminated name")
-        if not raw_name.split(b"\0", 1)[0].decode("ascii"):
-            raise ValueError(f"Parameter {parameter_id} has an empty name")
+        name = raw_name.split(b"\0", 1)[0].decode("ascii")
+        if not name or name in names:
+            raise ValueError(f"Parameter {parameter_id} has an empty or duplicate name")
+        names.add(name)
 
 
 def generate(source: Path, target: Path) -> None:

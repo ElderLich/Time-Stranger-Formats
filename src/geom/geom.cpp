@@ -520,10 +520,14 @@ namespace dsts::geom
                     checkName(material->name);
                     if(material->uniforms.size()>255 || material->settings.size()>255) throw std::runtime_error("Material parameter count exceeds its field width");
                     for(const auto& uniform:material->uniforms) {
+                        const auto& descriptor=shaderParameter(uniform.parameter_id);
                         if(const auto* values=std::get_if<std::vector<float>>(&uniform.value)) {
                             if(values->empty() || values->size()>4) throw std::runtime_error("Float uniform requires 1 through 4 values");
-                        } else if(std::get<std::string>(uniform.value).find('\0')!=std::string::npos)
-                            throw std::runtime_error("Texture name contains a NUL character");
+                        } else {
+                            validateMaterialTextureBinding(descriptor);
+                            if(std::get<std::string>(uniform.value).find('\0')!=std::string::npos)
+                                throw std::runtime_error("Texture name contains a NUL character");
+                        }
                     }
                 }
                 for(const auto& mesh:meshes) {

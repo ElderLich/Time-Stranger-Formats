@@ -15,6 +15,7 @@ home for the backend used by
 
 - Reads and writes `.geom` meshes, vertex attributes, skinning, skeletons and materials.
 - Preserves native camera/light records and ordered skeleton float-channel bindings.
+- Preserves complete material pass metadata and rejects invalid static texture bindings using typed native descriptors.
 - Keeps original inverse bind matrices for unchanged rigs, including through compact project snapshots.
 - Checks binary ranges and object references before access; unsupported sections fail explicitly.
 - Exposes geometry objects through the compiled `dsts_formats` Python module.
@@ -67,10 +68,10 @@ bind-pose snapshots in a project.
 ## Verified scope
 
 The CPython 3.13 Windows x64 backend passes **12 safety test groups**,
-**5 material-contract tests** and **2 build/package tests**. A deterministic
+**9 material-contract tests** and **3 build/package tests**. A deterministic
 100-character sample and seven scene fixtures pass structural round trips,
 including exact comparisons of camera/light records, float bindings, inverse
-bind matrices and parent tables. The consuming importer also passed checks in
+bind matrices, parent tables and complete material pass/parameter records. The consuming importer also passed checks in
 **Blender 5.1 and 5.3** with this backend.
 
 These checks do not establish complete format support or game acceptance.

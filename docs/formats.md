@@ -12,7 +12,7 @@ unknown fields remain explicitly unknown.
 | Inverse bind matrices | Original bytes retained while ordered parents, native transforms and geometry flags are unchanged | Edited poses recompute matrices; singular/non-finite inverses fail instead of falling back to identity. |
 | Project snapshots | Compact validated `Geom.bind_pose_snapshot` bytes and a match-status property | Caller must retain the snapshot and exact source transforms for an unchanged rig. Snapshot data is project metadata, not a game format. |
 | Skeleton float channels | Ordered uint32 indices, uint32 target hashes and uint8 flags preserved | Binding metadata only; no ANIM samples. Target renames and shader compatibility remain caller responsibilities. |
-| Materials | Shader keys, uniform/setting records and 791 verified native parameter names; owned Python value snapshots | Parameter schema is pinned to the documented executable; other builds require verification. |
+| Materials | All fourteen shader slots, opaque headers, uniform/setting records; 791 typed native descriptors; independent material cloning and static texture guards | Parameter schema is pinned; special type codes stay opaque. Shader linkage and runtime pass output compatibility require separate checks. |
 | Cameras | Exact 56-byte records, bone hash and verified FOV/near/far/orthographic-scale/projection fields | Other words remain opaque; no camera animation player or Blender camera conversion here. |
 | Lights | Exact 240-byte records and bone hash | Optical parameters remain opaque; no light renderer or Blender light conversion here. |
 | CLUT | Full color-table byte preservation with length-checked assignment | Python reads return owned snapshots. |
@@ -68,15 +68,17 @@ Validated on 2026-11-14 with CPython 3.13.14, pybind11 3.0.4 and MSVC 19.44:
 - **12 safety groups:** truncated/malformed binaries, checked array APIs, scene
   records, parent flags, bind-matrix snapshots, singular edits and reference
   add-on export guards.
-- **5 material-contract tests:** verified names, value ownership/lengths,
-  initialized setting payloads and atomic rejection of invalid shader keys.
-- **2 build/package tests:** shader-table validation and archive contents.
+- **9 material-contract tests:** all typed descriptors, invalid static texture
+  rejection, explicit numeric/setting checks, independent complete material
+  cloning, exact pass/metadata round trips, value ownership and invalid keys.
+- **3 build/package tests:** typed shader-table validation and archive contents.
 - **100/100 deterministic character fixtures:** structural read/write/read with
   semantic diagnostics collected; exact IBPM, float-binding and parent-table
-  comparisons, plus mesh/bone counts, names, topology, palette/vertex counts
-  and three positions per mesh.
-- **7/7 scene fixtures:** exact camera/light/float/IBPM/parent records, including
-  native material-float effects and mixed camera/light files.
+  comparisons, plus complete material headers, all fourteen shader descriptors,
+  numeric/setting records and resolved texture metadata. Mesh/bone counts,
+  names, topology, palette/vertex counts and three positions per mesh are checked.
+- **7/7 scene fixtures:** exact camera/light/float/IBPM/parent and material
+  records, including native material-float effects and mixed camera/light files.
 - **3 generated Leviamon particle fixtures:** exact native material float bindings.
 
 Detailed local reports remain under ignored `local/`; proprietary fixtures are

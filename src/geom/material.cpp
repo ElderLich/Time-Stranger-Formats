@@ -18,6 +18,37 @@ namespace dsts::geom
         return m;
     }();
 
+    inline const binary::ShaderParamDef& shaderParameter(uint32_t id) {
+        auto found=std::find_if(shaderParamDefs.begin(),shaderParamDefs.end(),
+            [id](const auto& descriptor){return descriptor.id==id;});
+        if(found==shaderParamDefs.end()) throw std::runtime_error("Unknown native shader parameter ID");
+        return *found;
+    }
+
+    inline const binary::ShaderParamDef& shaderParameter(const std::string& name) {
+        auto found=std::find_if(shaderParamDefs.begin(),shaderParamDefs.end(),
+            [&name](const auto& descriptor){return name==descriptor.name;});
+        if(found==shaderParamDefs.end()) throw std::runtime_error("Unknown native shader parameter name");
+        return *found;
+    }
+
+    inline std::string shaderParameterKind(const binary::ShaderParamDef& descriptor) {
+        switch(descriptor.type_code) {
+            case 0:return "texture";
+            case 1:return "scalar";
+            case 2:case 3:case 4:return "vector";
+            case 16:return "matrix";
+            case 100:return "render_state";
+            default:return "opaque";
+        }
+    }
+
+    inline void validateMaterialTextureBinding(const binary::ShaderParamDef& descriptor) {
+        if(descriptor.type_code!=0 || descriptor.global_scope)
+            throw std::runtime_error(std::string("Material texture ")+descriptor.name+
+                " requires a material-scoped texture descriptor (not numeric, matrix, render state or global-only)");
+    }
+
     class ShaderUniform {
         public:
             std::string parameter_name;
@@ -233,6 +264,35 @@ namespace dsts::geom
             void setName(std::string newName){
                 name = newName;
                 name_hash = crc32((const uint8_t*)name.data(),name.length());
+            }
+
+            // A split material owns all pass descriptors and opaque metadata.
+            // Copying only its visible texture/color fields loses native passes.
+            std::shared_ptr<Material> clone() const {
+                return std::make_shared<Material>(*this);
+            }
+
+            std::vector<size_t> activeShaderSlots() const {
+                std::vector<size_t> slots;
+                for(size_t i=0;i<shaders.size();++i)
+                    if(std::any_of(shaders[i].name_data.begin(),shaders[i].name_data.end(),
+                        [](uint32_t word){return word!=0;})) slots.push_back(i);
+                return slots;
+            }
+
+            void validateParameterTypes() const {
+                for(const auto& uniform:uniforms) {
+                    const auto& descriptor=shaderParameter(uniform.parameter_id);
+                    if(const auto* values=std::get_if<std::vector<float>>(&uniform.value)) {
+                        if(descriptor.type_code<1 || descriptor.type_code>4 ||
+                            values->size()!=descriptor.type_code)
+                            throw std::runtime_error(std::string("Material numeric uniform ")+descriptor.name+
+                                " does not match its native component count or supported GEOM payload type");
+                    } else validateMaterialTextureBinding(descriptor);
+                }
+                for(const auto& setting:settings)
+                    if(shaderParameter(setting.parameter_id).type_code!=100)
+                        throw std::runtime_error("Material setting is not a native render-state descriptor");
             }
     };
 }

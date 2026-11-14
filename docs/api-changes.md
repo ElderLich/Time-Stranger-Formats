@@ -11,6 +11,18 @@
   to replace values. Float uniforms accept one to four components.
 - Newly constructed material and setting metadata is initialized, rather
   than containing uninitialized memory.
+- Typed descriptors are available through `shader_parameter(id_or_name)` and
+  identified by `shader_descriptor_schema = "dsts-parameter-descriptor-v1"`.
+  Special native type codes remain opaque; component counts are only claimed
+  for verified numeric types. See [shader parameters](shader-parameters.md).
+- GEOM export rejects a static texture assigned to a numeric, matrix,
+  render-state or global-only descriptor before opening the output file.
+  `validate_material_texture_binding` exposes the same guard to consumers.
+  `Material.validate_parameter_types()` adds explicit numeric/setting checks.
+- `Material.clone()` independently copies all fourteen shader slots and every
+  material field. Uniform/setting trailer words are exposed as
+  `unknown_0x14`, `unknown_0x18` and `unknown_0x1C`; default-mismatch reader
+  diagnostics remain unchanged. `active_shader_slots` reports source indices.
 - Malformed binary bounds and unsupported sections raise exceptions even
   when optional semantic warnings are collected instead of thrown.
 

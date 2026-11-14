@@ -67,7 +67,13 @@ namespace dsts::geom::binary
 
     struct ShaderParamDef {
         uint32_t id;
-        uint8_t unk[0x14];
+        uint8_t global_scope;
+        uint8_t unknown_0x2D;
+        uint8_t type_code;
+        uint8_t unknown_0x2F;
+        uint32_t unknown_0x30;
+        uint32_t unknown_0x34;
+        uint8_t reserved[8];
         char name[0x20];
     };
 
