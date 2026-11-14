@@ -1,0 +1,224 @@
+{
+  "source": "User-supplied DSTS_Formats Parser source",
+  "baseline_commit": "d34bb83",
+  "excluded": [
+    "build/"
+  ],
+  "files": [
+    {
+      "path": ".gitignore",
+      "bytes": 15,
+      "sha256": "49d423781a146f941329d99bc0a5d309ead1cc721bc04abf69bb277a12c3a09a"
+    },
+    {
+      "path": "addon/__init__.py",
+      "bytes": 4766,
+      "sha256": "29865b9728c712c362964c9cbe5730ef68407f8958d1a465fea501e03280b408"
+    },
+    {
+      "path": "addon/data/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "addon/data/material_nodes.py",
+      "bytes": 5249,
+      "sha256": "fdf528687d2eb23fddbc5243074b76e2782b0404a147ed4ef46a0fd0d7ce6b8d"
+    },
+    {
+      "path": "addon/geom.py",
+      "bytes": 4003,
+      "sha256": "a876aad722dd7644464ebbe16cf0d326ad56646623de80d50f7b6723f0d41ffb"
+    },
+    {
+      "path": "addon/material.py",
+      "bytes": 16465,
+      "sha256": "ff9f59f6c915bd2b21dcfd6c9eb80909652edb335e5becceb8de997dc23c1591"
+    },
+    {
+      "path": "addon/mesh.py",
+      "bytes": 15834,
+      "sha256": "9891db6357f1d7d840f377fe8c9fe5f2d75d7f2f47804d29d7b830c40a9a4565"
+    },
+    {
+      "path": "addon/nlst.py",
+      "bytes": 579,
+      "sha256": "72e4760bfb61d73179f46a6d5382d3ebbf40d2771a6ec062b54052feca63c260"
+    },
+    {
+      "path": "addon/skeleton.py",
+      "bytes": 6934,
+      "sha256": "d0a579e999680ef363f0cb2e991b69170d36e2b83155f66f99925aedc6454207"
+    },
+    {
+      "path": "addon/utils.py",
+      "bytes": 241,
+      "sha256": "0de121af02de12dd2ec9fda0b019f36d11a81de0d5aa63bccb3b5c9106b86f5c"
+    },
+    {
+      "path": "CMakeLists.txt",
+      "bytes": 2552,
+      "sha256": "e7c0c1bf8f33b861028649dd41ee2a59a1ff81786764006f276fb8d6aa472428"
+    },
+    {
+      "path": "generate_shader_header.py",
+      "bytes": 800,
+      "sha256": "ae46740af203f6795c79f80caf50a8f940a9a69f6d3b93c197fc1fcdb7bc79f3"
+    },
+    {
+      "path": "notes/geom.hexpat",
+      "bytes": 12554,
+      "sha256": "12e15727b2f52cb787701c82ad0e39edc8bb5a9699a2c18ac2b876d10f451e12"
+    },
+    {
+      "path": "notes/nlst_types.txt",
+      "bytes": 60,
+      "sha256": "6263ad9098b83cc5da1c7b5d775af0576a10c5da3df346ae94098f58c700a919"
+    },
+    {
+      "path": "notes/shader_params.bin",
+      "bytes": 44296,
+      "sha256": "4a6eb270f0d86498994e15e4a86de381ee49c43dd9c76eb4b54766451ec2bcb9"
+    },
+    {
+      "path": "notes/shaderParam.hexpat",
+      "bytes": 323,
+      "sha256": "94c0f923b00501905d066e6ec5a5748086c3f88855b1b67e9cabe8240c357960"
+    },
+    {
+      "path": "src/geom/binary/clut.hpp",
+      "bytes": 474,
+      "sha256": "ba407b88fb46a48fef68886f88a0306513e82ea70ea4cfa08e6ab74cdb605d21"
+    },
+    {
+      "path": "src/geom/binary/enums.hpp",
+      "bytes": 135,
+      "sha256": "7cafcc82f2f73cf48e91ecce1bd8ce6b4e704be8a6191c303fef2d6734258dc5"
+    },
+    {
+      "path": "src/geom/binary/geom.hpp",
+      "bytes": 1057,
+      "sha256": "88871f35234d59be153919f70a019c5faf22ee5147d945fad16d78ec6b9980f9"
+    },
+    {
+      "path": "src/geom/binary/material.hpp",
+      "bytes": 1678,
+      "sha256": "9d2a696416966f4f2c58d6cb81bdf5e41a26ba1a6f373d10e410d42f55799f0b"
+    },
+    {
+      "path": "src/geom/binary/mesh.hpp",
+      "bytes": 1762,
+      "sha256": "1e740f73ce332d0e73e21de5bde3c48d5821b92250b9ba95f3f80e493ea5f0b6"
+    },
+    {
+      "path": "src/geom/binary/name_table.hpp",
+      "bytes": 328,
+      "sha256": "a557e6f5e563c81e477511a045e10895646df8e862813e636f5e1df438541b20"
+    },
+    {
+      "path": "src/geom/binary/skeleton.hpp",
+      "bytes": 1202,
+      "sha256": "95b2ecaf4546ece37c14dc48dda5b10ed7907337b7db8ab245cc7c82f00e44f2"
+    },
+    {
+      "path": "src/geom/geom.cpp",
+      "bytes": 39587,
+      "sha256": "92d7e72ad7aa18d98e10d68814ed712c8a2de10b7851ae3f462492e68ac3280e"
+    },
+    {
+      "path": "src/geom/material.cpp",
+      "bytes": 8185,
+      "sha256": "7f2a5eb0572fc8d3250ae62b91815ee04cc0d7a97513f8c9af85eb1ef11c6187"
+    },
+    {
+      "path": "src/geom/mesh.cpp",
+      "bytes": 28888,
+      "sha256": "eb7a7a0efa4a7ef99bf9ddedad330d87e514344338fdaf31f2c6a6ea0e6d7e09"
+    },
+    {
+      "path": "src/geom/skeleton.cpp",
+      "bytes": 19694,
+      "sha256": "835820577d21d3b36843f75ea500758bc61f66ceba0eba3b5c178686c136e590"
+    },
+    {
+      "path": "src/geom/stringSection.cpp",
+      "bytes": 637,
+      "sha256": "1f27cd108546b5ee2f1575e505c25a09351897fae4d366cab95ffacee81c6175"
+    },
+    {
+      "path": "src/python/bindings.cpp",
+      "bytes": 254,
+      "sha256": "5c731635c9a6d8a1e2bd1ddc4da948a034ae0348f2a2bbd82c0b486cb426c95d"
+    },
+    {
+      "path": "src/python/bindings.hpp",
+      "bytes": 1257,
+      "sha256": "20d2dfe9229f2783fabe2d6d2e6a1865b394d05e36c9af8d8eeaf306d27f3b78"
+    },
+    {
+      "path": "src/python/geom.cpp",
+      "bytes": 3001,
+      "sha256": "313a399013631f167f0ed3c46009093c1c3ef958b08d9013d7df856e43f04957"
+    },
+    {
+      "path": "src/python/material.cpp",
+      "bytes": 6063,
+      "sha256": "e8fbb0f79bf6433c1e8b2a406a271c0cf04b5ff12dd58b24e3ed2eaad2156483"
+    },
+    {
+      "path": "src/python/mesh.cpp",
+      "bytes": 15993,
+      "sha256": "b48b116e2ad3391167a1824f935ddd56698c7ded9e2845b6a91ec53f82c75354"
+    },
+    {
+      "path": "src/python/skeleton.cpp",
+      "bytes": 4454,
+      "sha256": "50271c75623f5486d442a502d66b160256621b518b5971bf2be7ba05a5c51bb5"
+    },
+    {
+      "path": "src/utils/align.cpp",
+      "bytes": 180,
+      "sha256": "59bbfe976545089fbf560c4b3e0195ffb66af082bdb4ac16b8117a913b863cd7"
+    },
+    {
+      "path": "src/utils/errors.cpp",
+      "bytes": 775,
+      "sha256": "a51b8ec32f5f41701ac7bd61873cda3d9de81ff3b28a0005aa76b2ffa7398cf6"
+    },
+    {
+      "path": "src/utils/float16.cpp",
+      "bytes": 4157,
+      "sha256": "527ecf6440ecd9125e3a1b09ee6727022f62118e3b83ddad78e2081b9f82ac1f"
+    },
+    {
+      "path": "src/utils/hash.cpp",
+      "bytes": 1096,
+      "sha256": "f03e336608f03c0eb25d43999231f54cc1820829ec413afcfb5a131545516275"
+    },
+    {
+      "path": "src/utils/matrix.cpp",
+      "bytes": 7727,
+      "sha256": "0b1c59e847678e7dd4bf1733ed9b93bea1a26f7407f711ded49999ea5ed58ce0"
+    },
+    {
+      "path": "src/utils/memory_buffer.cpp",
+      "bytes": 2590,
+      "sha256": "f3aa664296da8fa507af1b3a5076dbdb18a0eec37ccde2e5fe5da96223a7f4f0"
+    },
+    {
+      "path": "src/utils/quaternion.cpp",
+      "bytes": 1150,
+      "sha256": "1bf383f6516254a88d3062331f39b24acb82701ba68a6db2da89594af47459a4"
+    },
+    {
+      "path": "src/utils/stream.cpp",
+      "bytes": 1230,
+      "sha256": "0f71b5add6cb85430a5334e1594c3120a01e5682bfa44b643697386cceb11e32"
+    },
+    {
+      "path": "src/utils/vector.cpp",
+      "bytes": 803,
+      "sha256": "db1cac866a748a7155aa7e8f3f7455cf53df25212a403bc871f44856b350aacc"
+    }
+  ]
+}
