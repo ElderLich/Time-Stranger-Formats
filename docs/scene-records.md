@@ -61,16 +61,35 @@ values are unchanged. Renaming alone does not invalidate the snapshot. An edited
 bind pose recomputes matrices; a singular or non-finite inverse raises an error
 instead of silently replacing it with identity, including in diagnostics mode.
 
+Applications that rebuild backend objects can persist `geom.bind_pose_snapshot`
+as bytes (for example, base64 in a Blender collection property), then assign it
+to the rebuilt GEOM. The compact `DBPS` version 1 metadata contains only the
+ordered pose and original matrices: 12 header bytes plus 104 bytes per bone.
+It excludes mesh, material and texture data. Loading validates exact lengths,
+parent references/cycles, finite transforms/matrices and geometry flags before
+replacing any existing snapshot. `b''` clears it.
+`geom.bind_pose_snapshot_matches` reports whether the current pose still matches.
+The write-time comparison remains mandatory after attaching a snapshot.
+For an untouched Blender rig, reuse the exact imported native transform values
+after checking that the Blender rest matrices and parents have not changed;
+floating-point round trips can otherwise invalidate the snapshot.
+
 Original skeleton parent-pair and lookup arrays are retained when the hierarchy
 is unchanged. This includes duplicate pairs and the high-bit flag used by
 `chr800`. Editing a flagged hierarchy currently raises an explicit error rather
 than dropping flags whose authoring semantics are not yet implemented.
+To retain this metadata while rebuilding a skeleton, persist its compact
+`skeleton.to_bytes()` result and initialize with `Skeleton.from_bytes(...)`
+before replacing its `bones` and `float_channels` with the reconstructed data.
+The inverse bind snapshot does not include these skeleton table flags.
 
 ## Checks and remaining limits
 
-Eleven test groups exercise malformed pointers/counts, exact record preservation,
+Twelve test groups exercise malformed pointers/counts, exact record preservation,
 mixed camera/light/mesh files, float-table bounds, high-bit parents, raw snapshots,
 known lens edits, inverse bind matrix preservation and singular-pose rejection.
+Snapshot transfer also tests truncated data, invalid flags/parents, non-finite
+values, atomic rejection, rename tolerance and invalidation after pose edits.
 Seven real scene fixtures pass structural read/write/read checks with diagnostic
 collection enabled. Every camera/light record, float binding, inverse bind matrix
 and parent-pair/table entry is compared against the source bytes:

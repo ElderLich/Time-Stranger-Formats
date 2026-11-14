@@ -238,6 +238,32 @@ class SafetyTests(unittest.TestCase):
         guard.mark_skeleton_sections(armature,geom.skeleton)
         with self.assertRaisesRegex(ValueError,'float-channel bindings'):guard.require_supported_export(armature)
 
+    def test_compact_bind_pose_snapshot_transfer_and_validation(self):
+        original=formats.Geom();bone=formats.Bone();bone.name='root';original.skeleton.bones=[bone]
+        raw=bytearray(original.to_bytes());at=struct.unpack_from('<Q',raw,0x68)[0];struct.pack_into('<f',raw,at+12,13)
+        formats.set_throw_errors(False)
+        imported=formats.Geom.from_bytes(bytes(raw));snapshot=imported.bind_pose_snapshot
+        self.assertEqual(len(snapshot),116)
+        fresh=formats.Geom();fresh.skeleton=formats.Skeleton.from_bytes(imported.skeleton.to_bytes())
+        fresh.bind_pose_snapshot=snapshot;del imported;gc.collect()
+        self.assertTrue(fresh.bind_pose_snapshot_matches)
+        self.assertEqual(preserved_sections(fresh.to_bytes())['ibpm'],preserved_sections(raw)['ibpm'])
+        fresh.skeleton.bones[0].name='renamed';self.assertTrue(fresh.bind_pose_snapshot_matches)
+        for length in range(1,len(snapshot)):
+            with self.assertRaises(Exception):fresh.bind_pose_snapshot=snapshot[:length]
+        for offset,kind,value in [(4,'<I',999),(8,'<I',2**32-1),(12,'<i',0),(12,'<i',-2),
+                                 (12+52,'<I',2),(12+4,'<f',float('nan')),(12+56,'<f',float('inf'))]:
+            bad=bytearray(snapshot);struct.pack_into(kind,bad,offset,value)
+            with self.assertRaises(Exception):fresh.bind_pose_snapshot=bytes(bad)
+        self.assertEqual(fresh.bind_pose_snapshot,snapshot)  # failed setters are atomic
+        fresh.skeleton.bones[0].is_geometry=True;self.assertFalse(fresh.bind_pose_snapshot_matches)
+        fresh.skeleton.bones[0].is_geometry=False
+        fresh.skeleton.bones[0].transform.position=np.array([2,0,0,1],np.float32)
+        self.assertFalse(fresh.bind_pose_snapshot_matches)
+        rewritten=fresh.to_bytes();at=struct.unpack_from('<Q',rewritten,0x68)[0]
+        self.assertEqual(struct.unpack_from('<f',rewritten,at+12)[0],-2.0)
+        fresh.bind_pose_snapshot=b'';self.assertEqual(fresh.bind_pose_snapshot,b'')
+
 
 def corpus(root, limit, output, collect=False,scene_fixtures=False):
     if scene_fixtures:

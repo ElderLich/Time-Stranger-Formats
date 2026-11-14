@@ -57,6 +57,9 @@ void bind_geom(py::module_ &m) {
 
     py::class_<Geom>(m, "Geom")
         .def(py::init<>())
+        .def_property("bind_pose_snapshot",[](const Geom& g){return py::bytes(g.getBindPoseSnapshot());},
+            [](Geom& g,py::bytes data){g.setBindPoseSnapshot(static_cast<std::string>(data));})
+        .def_property_readonly("bind_pose_snapshot_matches",&Geom::bindPoseSnapshotMatches)
         .def_readwrite("unknown_0x10", &Geom::unknown_0x10)
         .def_readwrite("unknown_0x30", &Geom::unknown_0x30)
         .def_readwrite("unknown_0x34", &Geom::unknown_0x34)

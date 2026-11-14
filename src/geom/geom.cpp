@@ -48,6 +48,66 @@ namespace dsts::geom
             return result;
         }
         public:
+            // Compact project metadata, not a game format. Unknown original
+            // matrices can be retained across a saved Blender project without
+            // embedding meshes/textures or bypassing the bind-pose comparison.
+            std::string getBindPoseSnapshot() const {
+                if(!hasSourceIbpm) return {};
+                std::string result;
+                result.reserve(12+sourceBindPose.size()*104);
+                const auto append=[&](const auto& value) {
+                    result.append(reinterpret_cast<const char*>(&value),sizeof(value));
+                };
+                append(uint32_t{0x53504244}); // DBPS, little endian
+                append(uint32_t{1});
+                append(static_cast<uint32_t>(sourceBindPose.size()));
+                for(size_t i=0;i<sourceBindPose.size();++i) {
+                    append(static_cast<int32_t>(sourceBindPose[i].parent));
+                    append(sourceBindPose[i].transform);
+                    append(static_cast<uint32_t>(sourceBindPose[i].is_geometry));
+                    append(sourceIbpm[i]);
+                }
+                return result;
+            }
+
+            void setBindPoseSnapshot(const std::string& bytes) {
+                if(bytes.empty()) {
+                    sourceIbpm.clear();sourceBindPose.clear();hasSourceIbpm=false;return;
+                }
+                std::istringstream stream(bytes,std::ios::binary);
+                dsts::CheckedBinary input(stream);
+                if(input.object<uint32_t>(0,"Bind pose snapshot magic")!=0x53504244 ||
+                   input.object<uint32_t>(4,"Bind pose snapshot version")!=1)
+                    throw std::runtime_error("Unsupported bind pose snapshot");
+                const auto count=input.object<uint32_t>(8,"Bind pose snapshot count");
+                if(count>0x7FFF || input.size()!=12+uint64_t{104}*count)
+                    throw std::runtime_error("Invalid bind pose snapshot size");
+                std::vector<BindPoseEntry> pose;
+                std::vector<binary::Ibpm> matrices;
+                std::vector<int> parents;
+                pose.reserve(count);matrices.reserve(count);parents.reserve(count);
+                for(uint32_t i=0;i<count;++i) {
+                    const uint64_t at=12+uint64_t{104}*i;
+                    const auto parent=input.object<int32_t>(at,"Snapshot parent");
+                    const auto transform=input.object<binary::BoneTransform>(at+4,"Snapshot transform");
+                    const auto geometry=input.object<uint32_t>(at+52,"Snapshot geometry flag");
+                    const auto matrix=input.object<binary::Ibpm>(at+56,"Snapshot inverse bind matrix");
+                    if(parent < -1 || parent>=static_cast<int>(count) || geometry>1)
+                        throw std::runtime_error("Invalid bind pose snapshot entry");
+                    for(const float* values:{transform.position,transform.quaternion,transform.scale})
+                        for(int j=0;j<4;++j) if(!std::isfinite(values[j])) throw std::runtime_error("Snapshot transform is not finite");
+                    for(float value:matrix.matrix) if(!std::isfinite(value)) throw std::runtime_error("Snapshot inverse bind matrix is not finite");
+                    pose.push_back({parent,transform,geometry!=0});matrices.push_back(matrix);parents.push_back(parent);
+                }
+                Skeleton::validateParentIndices(parents);
+                sourceBindPose=std::move(pose);sourceIbpm=std::move(matrices);hasSourceIbpm=true;
+            }
+
+            bool bindPoseSnapshotMatches() const {
+                skeleton.validate();
+                return hasSourceIbpm && sourceBindPose==bindPose();
+            }
+
             uint32_t unknown_0x10 = 0;
             uint32_t unknown_0x30 = 0;
             uint32_t unknown_0x34 = 0;
