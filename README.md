@@ -14,6 +14,9 @@ home for the backend used by
 ## What it does
 
 - Reads and writes `.geom` meshes, vertex attributes, skinning, skeletons and materials.
+- Preserves native camera/light records and ordered skeleton float-channel bindings.
+- Keeps original inverse bind matrices for unchanged rigs, including through compact project snapshots.
+- Checks binary ranges and object references before access; unsupported sections fail explicitly.
 - Exposes geometry objects through the compiled `dsts_formats` Python module.
 - Generates companion `.nlst` name lists through the reference Blender adapter.
 - Includes ImHex patterns and shader parameter definitions for format research.
@@ -56,9 +59,26 @@ print(len(model.meshes), len(model.materials), len(model.skeleton.bones))
 model.to_file("chr_example_edited.geom")
 ```
 
-Work on copies of extracted assets. Keep unknown fields intact, and validate
-exports before installing them in a mod. The [format coverage](docs/formats.md)
-lists sections that the baseline parser cannot preserve yet.
+Camera and light records retain their unknown bytes. Float channels retain
+their binding metadata; animation samples belong to the separate ANIM codec.
+See the [scene-record API](docs/scene-records.md) for lens editing and saving
+bind-pose snapshots in a project.
+
+## Verified scope
+
+The CPython 3.13 Windows x64 backend passes **12 safety test groups**,
+**5 material-contract tests** and **2 build/package tests**. A deterministic
+100-character sample and seven scene fixtures pass structural round trips,
+including exact comparisons of camera/light records, float bindings, inverse
+bind matrices and parent tables. The consuming importer also passed checks in
+**Blender 5.1 and 5.3** with this backend.
+
+These checks do not establish complete format support or game acceptance.
+Mesh controllers and edits to flagged skeleton hierarchies fail explicitly;
+bounds are still recomputed on export. The reference add-on blocks exports
+that would discard scene or binding metadata. Use the maintained importer for
+the complete Blender workflow, and consult [coverage and limits](docs/formats.md)
+before editing a new asset type.
 
 ## Inside the repository
 
