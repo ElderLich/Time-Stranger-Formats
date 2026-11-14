@@ -26,7 +26,7 @@ namespace dsts::geom
             std::variant<std::vector<float>, std::string> value;
 
             //unks
-            uint32_t unknown_0xC;
+            uint32_t unknown_0xC = 0;
             uint32_t unknown_0x14 = 0xFFFFFFFF;
             uint32_t unknown_0x18 = 0xFFFFFFFF;
             uint32_t unknown_0x1C = 0xFFFFFF;
@@ -74,8 +74,8 @@ namespace dsts::geom
             uint16_t parameter_id = 0;
 
             //unks
-            binary::Payload payload;
-            uint16_t unknown_0x12;
+            binary::Payload payload{};
+            uint16_t unknown_0x12 = 0;
             uint32_t unknown_0x14 = 0xFFFFFFFF;
             uint32_t unknown_0x18 = 0xFFFFFFFF;
             uint32_t unknown_0x1C = 0xFFFFFF;
@@ -214,13 +214,13 @@ namespace dsts::geom
 
     class Material {
         public:
-            uint32_t unknown_0x314;
-            uint32_t unknown_0x318;
-            uint32_t unknown_0x31C;
-            uint16_t unknown_0x324;
-            uint16_t unknown_0x326;
+            uint32_t unknown_0x314 = 0;
+            uint32_t unknown_0x318 = 0;
+            uint32_t unknown_0x31C = 0;
+            uint16_t unknown_0x324 = 0;
+            uint16_t unknown_0x326 = 0;
 
-            uint32_t name_hash;
+            uint32_t name_hash = 0;
             std::string name;
 
             std::array<Shader, 14> shaders;

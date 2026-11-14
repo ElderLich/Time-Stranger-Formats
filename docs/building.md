@@ -21,7 +21,8 @@ directory only after validating it against that importer's smoke tests. Keep the
 previous build until validation passes. Do not rename a `cp313` binary to imply
 support for a different ABI.
 
-The reference add-on in `addon/` is packaged separately. It contains a minimal
+Add `-DDSTS_BUILD_REFERENCE_ADDON=ON` to the configure command to also package
+the reference add-on in `addon/`. It contains a minimal
 GEOM import/export workflow; it is not the complete Time Stranger Importer.
 
 Source assets are external fixtures. Tests should use an explicit extraction

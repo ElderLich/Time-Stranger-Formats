@@ -8,7 +8,7 @@ field's interpretation.
 | --- | --- | --- |
 | GEOM meshes | Read/write vertex attributes, indices and material assignments | Validate all offsets, counts, palette and material indices before access |
 | Skeleton | Bones, hierarchy, inverse bind poses | Preserve indexed float channels; validate hierarchy references |
-| Materials | Shader keys, uniform and setting records | Verify parameter names against the correct game version and binding domain |
+| Materials | Shader keys, uniform and setting records; corrected native parameter names | Validate other executable versions before adding table profiles |
 | Cameras | Explicitly unsupported | Implement the observed 56-byte native camera records and associated float channels |
 | Lights | Explicitly unsupported | Recover record layout and preservation rules from files/native loader |
 | Mesh controllers | Explicitly unsupported | Establish bounded records and exact round-trip behavior |
@@ -24,10 +24,9 @@ sections are assertions which can be configured as warnings; exporting such a
 file may discard data. These need explicit checks before the backend can claim
 safe preservation of arbitrary GEOM files.
 
-Shader parameter labels also need a version/domain audit: the stored table and
-the current runtime table use different labels at some numeric values. Raw
-identifiers must remain unchanged until the mapping is proven. Guessing a
-global offset would corrupt material meaning.
+The shader label mismatch is now repaired using the pinned native table and
+loader evidence. Numeric identifiers are unchanged. See
+[shader parameters](shader-parameters.md) for the proof and reproduction tool.
 
 ## Acceptance for a format change
 

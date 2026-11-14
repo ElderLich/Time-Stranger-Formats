@@ -39,26 +39,14 @@ void bind_material(py::module_ &m) {
                     if constexpr (std::is_same_v<T, std::string>) {
                         return py::cast(arg);
                     } else {
-                        // FLOAT VECTOR → RETURN WRITABLE NUMPY VIEW
-
-                        auto *vec_ptr = &arg; // std::vector<float>*
-
-                        // Capsule ensures lifetime is tied to the C++ object
-                        py::capsule base(vec_ptr, [](void*) {
-                            // no deletion; C++ owns the vector
-                        });
-
-                        return py::array(
-                            py::buffer_info(
-                                vec_ptr->data(),                 // pointer
-                                sizeof(float),                   // itemsize
-                                py::format_descriptor<float>::format(), // format
-                                1,                               // ndim
-                                { vec_ptr->size() },             // shape
-                                { sizeof(float) }                // stride
-                            ),
-                            base // capsule managing lifetime
-                        );
+                        // A vector can be reassigned while Python keeps its array.
+                        // Return owned storage; a non-owning capsule cannot make
+                        // that old vector allocation safe after reassignment.
+                        py::array_t<float> result(arg.size());
+                        if (!arg.empty()) {
+                            std::memcpy(result.mutable_data(), arg.data(), arg.size() * sizeof(float));
+                        }
+                        return result;
                     }
                 }, u.value);
             },
@@ -70,6 +58,9 @@ void bind_material(py::module_ &m) {
                 } else {
                     // Convert any sequence-like object into a vector<float>
                     std::vector<float> vals = obj.cast<std::vector<float>>();
+                    if (vals.empty() || vals.size() > 4) {
+                        throw py::value_error("A GEOM float uniform needs one to four components");
+                    }
                     u.value = std::move(vals);
                 }
             })
@@ -87,11 +78,7 @@ void bind_material(py::module_ &m) {
             &dsts::geom::ShaderSetting::setParameterName)
         .def_property("value", [](const dsts::geom::ShaderSetting &s){
             constexpr size_t n = sizeof(s.payload.payload);
-            return py::memoryview::from_buffer(
-                (const uint8_t*)s.payload.payload,
-                { n },
-                { sizeof(uint8_t) }
-            );
+            return py::bytes(reinterpret_cast<const char*>(s.payload.payload), n);
         },[](dsts::geom::ShaderSetting &s, py::bytes b){
             constexpr size_t n = sizeof(s.payload.payload);
 

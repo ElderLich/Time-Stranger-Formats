@@ -13,6 +13,12 @@ initial commit is an upstream revision, nor assign new licensing terms to it.
 `source-manifest.json` records the SHA-256 digest and size of each imported
 file. Later changes belong in separate commits with their validation evidence.
 
+The local baseline was compared with upstream `parser` commit
+`84ee1eaa92d419a0b2d3f08940afdb1b95a2ab6d`. All parser, adapter and format-note
+files match; the only local differences are the Windows build changes in
+`CMakeLists.txt` and the added `generate_shader_header.py`. The `upstream`
+remote retains access to the original author's history.
+
 ## Cleanup at import
 
 Excluded `build/`: CMake cache and project files, compiler intermediates,

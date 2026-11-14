@@ -39,7 +39,8 @@ For Blender, match its **embedded Python ABI**, architecture and operating
 system. A renamed `.pyd` is not a compatible build. The current importer uses
 CPython 3.13 on Windows x64; check the target Blender version before building.
 
-The build produces the native module and a reference add-on ZIP. The reference
+The build produces the native module. Add `-DDSTS_BUILD_REFERENCE_ADDON=ON`
+when configuring to also create a reference add-on ZIP. The reference
 add-on is useful for development; the maintained user interface lives in
 **Time Stranger Importer**. See [build notes](docs/building.md) for integration.
 
