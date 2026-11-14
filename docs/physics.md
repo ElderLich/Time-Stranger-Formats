@@ -21,6 +21,10 @@ Supported editing APIs:
 - `set_box(index, half_extents=...)`, `set_sphere(index, radius=...)`,
   `set_vertex(shape_index, vertex_index, position)`, and
   `set_triangle(shape_index, triangle_index, vertices)`.
+- `set_mesh(index, vertices=..., triangles=..., table_a_indices=...,
+  table_b_indices=...)` applies selected existing arrays in one validated
+  transaction. Counts must stay unchanged. Use it when exporting many edited
+  vertices/faces so the document is reparsed once per shape.
 - `table_a` and `table_b`: fixed-width source name tables. Their native indexing
   is established; full gameplay meaning is not yet established, so the public
   API deliberately retains neutral names. `set_table_name('a' | 'b', index,
@@ -98,7 +102,7 @@ remain untouched. This is native-loading evidence, not an in-game edit test.
 
 ## Verification and remaining acceptance
 
-Nine synthetic regressions cover typed box/sphere/mesh edits, associations,
+Ten synthetic regressions cover typed box/sphere/mesh edits, associations,
 exact unrelated-byte preservation, rejected malformed/unsupported sources,
 transactional edits, full-width source names, no-clobber/stale guards, and
 failed-replace preservation. Run:

@@ -245,6 +245,39 @@ class PhysicsDocument:
         _index(vertex_index, len(mesh.vertices), 'vertex')
         self._apply([(self._layouts[shape_index][3][0] + 12*vertex_index, _floats(position, 3, 'vertex'))])
 
+    def set_mesh(self, index, *, vertices=None, triangles=None, table_a_indices=None, table_b_indices=None):
+        """Apply complete existing arrays together, validating/reparsing once.
+
+        Omitted arrays and bytes outside those arrays are unchanged. Array
+        lengths cannot change. Use this for Blender Edit Mode exports rather
+        than repeatedly reparsing a large document for individual vertices.
+        """
+        mesh = self._mesh(index)
+        layout = self._layouts[index]
+        patches = []
+        if vertices is not None:
+            vertices = tuple(vertices)
+            _require(len(vertices) == len(mesh.vertices), 'Vertex count changes are unsupported')
+            encoded = b''.join(_floats(v, 3, 'vertex') for v in vertices)
+            patches.append((layout[3][0], encoded))
+        if triangles is not None:
+            triangles = tuple(tuple(t) for t in triangles)
+            _require(len(triangles) == len(mesh.triangles), 'Triangle count changes are unsupported')
+            for triangle in triangles:
+                _require(len(triangle) == 3, 'Expected three triangle vertex indices')
+                for vertex in triangle:
+                    _index(vertex, len(mesh.vertices), 'vertex')
+            patches.append((layout[3][1], b''.join(struct.pack('<3I', *t) for t in triangles)))
+        for values, count, at in ((table_a_indices, len(self.table_a), layout[1]),
+                                  (table_b_indices, len(self.table_b), layout[2])):
+            if values is not None:
+                values = tuple(values)
+                _require(len(values) == len(mesh.triangles), 'Association count changes are unsupported')
+                for value in values:
+                    _index(value, min(count, 65536), 'name table')
+                patches.append((at, b''.join(struct.pack('<H', v) for v in values)))
+        self._apply(patches)
+
     def set_triangle(self, shape_index, triangle_index, vertices):
         mesh = self._mesh(shape_index)
         _index(triangle_index, len(mesh.triangles), 'triangle')

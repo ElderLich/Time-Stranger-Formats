@@ -90,6 +90,24 @@ class PhysicsTests(unittest.TestCase):
         self.assertEqual(reloaded.shapes[2].triangles[0], (2, 1, 0))
         self.assertEqual(reloaded.shapes[2].table_a_indices, (1,))
 
+    def test_mesh_batch_validates_once_and_failed_array_retains_document(self):
+        raw = fixture()
+        doc = physics.PhysicsDocument.from_bytes(raw)
+        vertices = ((8, 0, 0), (1, 7, 0), (0, 1, 6))
+        with patch.object(doc, '_apply', wraps=doc._apply) as apply:
+            doc.set_mesh(2, vertices=vertices, triangles=((2, 0, 1),), table_a_indices=(1,), table_b_indices=(0,))
+            apply.assert_called_once()
+        self.assertEqual(doc.shapes[2].vertices, vertices)
+        self.assertEqual(doc.shapes[2].triangles, ((2, 0, 1),))
+        self.assertEqual(doc.to_bytes()[:424], raw[:424])
+        self.assertEqual(doc.to_bytes()[476:], raw[476:])
+        changed = doc.to_bytes()
+        for edits in (dict(vertices=vertices[:2]), dict(triangles=((0, 1, 3),)),
+                      dict(vertices=vertices, table_a_indices=(2,)), dict(table_b_indices=())):
+            with self.assertRaises(ValueError):
+                doc.set_mesh(2, **edits)
+            self.assertEqual(doc.to_bytes(), changed)
+
     def test_invalid_layouts_and_data_rejected(self):
         changes = [(0, '<I', 0), (4, '<I', 3), (8, '<I', 4),
                    (24, '<Q', 8), (32, '<Q', 99999999), (288, '<Q', 8),
