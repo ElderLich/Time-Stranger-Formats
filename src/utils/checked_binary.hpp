@@ -32,6 +32,10 @@ public:
         length = static_cast<uint64_t>(end) - base;
     }
     uint64_t size() const { return length; }
+    void limit(uint64_t byteLength, const char* what) {
+        range(0,byteLength,1,what);
+        length=byteLength;
+    }
     void range(uint64_t offset, uint64_t count, uint64_t width, const char* what) const {
         if (offset > length || (width && count > (length - offset) / width))
             throw std::runtime_error(std::string(what) + ": range exceeds input");

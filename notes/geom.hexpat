@@ -140,7 +140,7 @@ struct VertexAttribute<auto Attributes> {
     match(type) {
         (Dtype::uByte): u8 values[count] @ pos;
         (Dtype::sByte): s8 values[count] @ pos;
-        (Dtype::uShort): u16 values[countt] @ pos;
+        (Dtype::uShort): u16 values[count] @ pos;
         (Dtype::sShort): s16 values[count] @ pos;
         (Dtype::uInt): u32 values[count] @ pos;
         (Dtype::sInt): s32 values[count] @ pos;
@@ -174,7 +174,7 @@ struct Mesh<auto header> {
     u32 matrix_palletes[meshHeader.matrix_palette_count] @ meshHeader.matrix_palette_offset;
     u16 indices[meshHeader.index_count] @ meshHeader.indices_offset;
 
-    if (meshHeader.controller_offset > 0) Controller controller @ controller_offset;
+    if (meshHeader.controller_offset > 0) Controller controller @ meshHeader.controller_offset;
 };
 
 u32 shaderTableSize = 791;
@@ -186,7 +186,7 @@ struct ShaderParamDef {
     char name[] @  std::ptr::relative_to_parent(0) + 0x18;
 } [[fixed_size(shaderParamSize)]] ;
 
-std::file::Handle shaderTableHandle = std::file::open("shader_table.bin", std::file::Mode::Read);//add to imHex's folder
+std::file::Handle shaderTableHandle = std::file::open("shader_params.bin", std::file::Mode::Read);//use the normalized native table beside this pattern
 str shaderTableStr = std::file::read(shaderTableHandle, shaderParamSize * shaderTableSize);
 std::file::close(shaderTableHandle);
 
@@ -308,12 +308,23 @@ struct Material<auto header, auto name_table> {
 };
 
 struct Light<auto header> {
-    std::unimplemented();
-};
+    // Native 0x1402E0450: copies 240 bytes; first word binds a skeleton bone.
+    u32 name_hash;
+    u8 unknown_0x04[236];
+} [[fixed_size(240)]];
 
 struct Camera<auto header> {
-    std::unimplemented();
-};
+    // Native 0x1402E05E0 copies 56 bytes; lens fields read by 0x1402E2D80.
+    u32 name_hash;
+    float vertical_fov_degrees;
+    u8 unknown_0x08[4];
+    float near_plane;
+    float far_plane;
+    float orthographic_scale;
+    u8 unknown_0x18[8];
+    u32 projection_flag;
+    u8 unknown_0x24[20];
+} [[fixed_size(56)]];
 
 struct Ibpm<auto header> {
     float matrix[12];//final row [0,0,0,1] is implicit

@@ -9,10 +9,51 @@ using namespace dsts::geom::binary;
 
 PYBIND11_MAKE_OPAQUE(std::vector<Mesh>)
 PYBIND11_MAKE_OPAQUE(std::vector<std::shared_ptr<Material>>)
+PYBIND11_MAKE_OPAQUE(std::vector<CameraRecord>)
+PYBIND11_MAKE_OPAQUE(std::vector<LightRecord>)
 
 void bind_geom(py::module_ &m) {
     py::bind_vector<std::vector<Mesh>>(m, "MeshList");
     py::bind_vector<std::vector<std::shared_ptr<Material>>>(m, "MaterialList");
+    py::bind_vector<std::vector<CameraRecord>>(m, "CameraList");
+    py::bind_vector<std::vector<LightRecord>>(m, "LightList");
+    py::class_<LightRecord>(m,"LightRecord")
+        .def(py::init<>())
+        .def_property("raw",[](const LightRecord& light) {
+            return py::bytes(reinterpret_cast<const char*>(light.raw.data()),light.raw.size());
+        },[](LightRecord& light,py::bytes data) {
+            const std::string bytes=data;
+            if(bytes.size()!=LightRecord::byte_size) throw std::runtime_error("Light record must contain exactly 240 bytes");
+            std::memcpy(light.raw.data(),bytes.data(),bytes.size());
+        })
+        .def_property("name_hash",&LightRecord::name_hash,&LightRecord::set_name_hash);
+    py::class_<CameraRecord>(m,"CameraRecord")
+        .def(py::init<>())
+        .def_property("raw",[](const CameraRecord& camera) {
+            return py::bytes(reinterpret_cast<const char*>(camera.raw.data()),camera.raw.size());
+        },[](CameraRecord& camera,py::bytes data) {
+            const std::string bytes=data;
+            if(bytes.size()!=CameraRecord::byte_size) throw std::runtime_error("Camera record must contain exactly 56 bytes");
+            std::memcpy(camera.raw.data(),bytes.data(),bytes.size());
+        })
+        .def_property("name_hash",&CameraRecord::get<uint32_t,0>,&CameraRecord::set<uint32_t,0>)
+        .def_property("fov_degrees",&CameraRecord::get<float,4>,[](CameraRecord& c,float value) {
+            if(!std::isfinite(value) || value<=0 || value>=180) throw std::runtime_error("Camera vertical FOV must be between 0 and 180 degrees");
+            c.set<float,4>(value);
+        })
+        .def_property("near",&CameraRecord::get<float,12>,[](CameraRecord& c,float value) {
+            if(!std::isfinite(value) || value<=0) throw std::runtime_error("Camera near plane must be positive and finite");
+            c.set<float,12>(value);
+        })
+        .def_property("far",&CameraRecord::get<float,16>,[](CameraRecord& c,float value) {
+            if(!std::isfinite(value) || value<=0) throw std::runtime_error("Camera far plane must be positive and finite");
+            c.set<float,16>(value);
+        })
+        .def_property("orthographic_scale",&CameraRecord::get<float,20>,[](CameraRecord& c,float value) {
+            if(!std::isfinite(value) || value<=0) throw std::runtime_error("Camera orthographic scale must be positive and finite");
+            c.set<float,20>(value);
+        })
+        .def_property("projection_flag",&CameraRecord::get<uint32_t,32>,&CameraRecord::set<uint32_t,32>);
 
     py::class_<Geom>(m, "Geom")
         .def(py::init<>())
@@ -35,6 +76,10 @@ void bind_geom(py::module_ &m) {
 
         })
         .def_readwrite("skeleton", &Geom::skeleton)
+        .def_property("cameras",make_vector_property(&Geom::cameras).first,
+            make_vector_property(&Geom::cameras).second)
+        .def_property("lights",make_vector_property(&Geom::lights).first,
+            make_vector_property(&Geom::lights).second)
         .def_property(
             "meshes",
             make_vector_property(&Geom::meshes).first,

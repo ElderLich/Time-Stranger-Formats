@@ -15,6 +15,8 @@
 #include "skeleton.cpp"
 #include "mesh.cpp"
 #include "material.cpp"
+#include "camera.hpp"
+#include "light.hpp"
 #include "stringSection.cpp"
 #include "../utils/hash.cpp"
 #include "../utils/stream.cpp"
@@ -25,6 +27,26 @@
 namespace dsts::geom
 {  
     class Geom {
+        struct BindPoseEntry {
+            int parent;
+            binary::BoneTransform transform;
+            bool is_geometry;
+            bool operator==(const BindPoseEntry& other) const {
+                return parent==other.parent && is_geometry==other.is_geometry &&
+                    std::memcmp(&transform,&other.transform,sizeof(transform))==0;
+            }
+        };
+        std::vector<binary::Ibpm> sourceIbpm;
+        std::vector<BindPoseEntry> sourceBindPose;
+        bool hasSourceIbpm=false;
+
+        std::vector<BindPoseEntry> bindPose() const {
+            std::vector<BindPoseEntry> result;
+            result.reserve(skeleton.bones.size());
+            for(const auto& bone:skeleton.bones)
+                result.push_back({bone->parent ? getIndex(skeleton.bones,bone->parent) : -1,bone->transform,bone->is_geometry});
+            return result;
+        }
         public:
             uint32_t unknown_0x10 = 0;
             uint32_t unknown_0x30 = 0;
@@ -35,11 +57,14 @@ namespace dsts::geom
             Skeleton skeleton;
             std::vector<Mesh> meshes;
             std::vector<std::shared_ptr<Material>> materials;
+            std::vector<CameraRecord> cameras;
+            std::vector<LightRecord> lights;
 
             void read(std::istream& f, int base = 0){
                 validateGeomBinary(f,base);
                 f.exceptions(std::ios::failbit | std::ios::badbit);
-                meshes.clear();materials.clear();skeleton.bones.clear();
+                meshes.clear();materials.clear();cameras.clear();lights.clear();skeleton.bones.clear();skeleton.float_channels.clear();
+                sourceIbpm.clear();sourceBindPose.clear();hasSourceIbpm=false;
                 binary::GeomHeader header{};
 
                 f.seekg(base);
@@ -234,24 +259,14 @@ namespace dsts::geom
                 ASSERT_OR_THROW(ibpms.size() == skeleton.bones.size(), "Ibpm count does not match skeleton bone count");
                 for (int i = 0; i < skeleton.bones.size(); i++) {
                     if (skeleton.bones[i]->is_geometry) {
-                        ASSERT_OR_THROW(ibpmEqual(ibpms[i], Ibpm()), ([this, &i, &ibpms](){
-                            std::ostringstream oss;
-                            oss << "Geometry Ibpm does not match identity: " << this->skeleton.bones[i]->name << std::endl;
-                            oss << "Ibpm:" << std::endl;
-                            oss << printTransform(DecomposeMatrix(MatrixFromIbpm(ibpms[i]).inverse()));
-                            return oss.str();
-                        })());
+                        ASSERT_OR_THROW(ibpmEqual(ibpms[i], Ibpm()), "Geometry inverse bind matrix differs from identity: " + skeleton.bones[i]->name);
                     } else {
-                        Ibpm computed = ibpmFromMatrix(ComputeInverseBindPose(skeleton.bones[i]));
-                        ASSERT_OR_THROW(ibpmEqual(ibpms[i], computed), ([this, &i, &ibpms, &computed](){
-                            std::ostringstream oss;
-                            oss << "Ibpm does not match on: " << this->skeleton.bones[i]->name << std::endl;
-                            oss << "Ibpm:" << std::endl;
-                            oss << printTransform(DecomposeMatrix(MatrixFromIbpm(ibpms[i]).inverse())) << std::endl;
-                            oss << "Bone:" << std::endl;
-                            oss << printTransform(DecomposeMatrix(MatrixFromIbpm(computed).inverse()));
-                            return oss.str();
-                        })() );
+                        try {
+                            const Ibpm computed=ibpmFromMatrix(ComputeInverseBindPose(skeleton.bones[i]));
+                            ASSERT_OR_THROW(ibpmEqual(ibpms[i], computed), "Inverse bind matrix differs from computed pose: " + skeleton.bones[i]->name);
+                        } catch(const std::runtime_error& error) {
+                            ASSERT_OR_THROW(false,"Bind pose cannot be verified for " + skeleton.bones[i]->name + ": " + error.what());
+                        }
                     }
                 }
 
@@ -420,8 +435,17 @@ namespace dsts::geom
                 f.seekg(base + header.clut_offset);
                 f.read(reinterpret_cast<char*>(&clut), sizeof(binary::Clut));
 
-                ASSERT_OR_THROW(header.light_count == 0, "Geom contains Light data, this is not yet implemented");
-                ASSERT_OR_THROW(header.camera_count == 0,"Geom contains Camera data, this is not yet implemented");
+                lights.resize(header.light_count);
+                if(!lights.empty()) {
+                    f.seekg(base+header.light_offset);
+                    f.read(reinterpret_cast<char*>(lights.data()),lights.size()*sizeof(LightRecord));
+                }
+                cameras.resize(header.camera_count);
+                if(!cameras.empty()) {
+                    f.seekg(base+header.camera_offset);
+                    f.read(reinterpret_cast<char*>(cameras.data()),cameras.size()*sizeof(CameraRecord));
+                }
+                sourceIbpm=std::move(ibpms);sourceBindPose=bindPose();hasSourceIbpm=true;
             }
 
             void validateForWrite() const {
@@ -430,7 +454,7 @@ namespace dsts::geom
                     if(name.find('\0')!=std::string::npos) throw std::runtime_error("Object name contains a NUL character");
                 };
                 for(const auto& bone:skeleton.bones) checkName(bone->name);
-                if(meshes.size()>65535 || materials.size()>65535) throw std::runtime_error("GEOM section count exceeds its field width");
+                if(meshes.size()>65535 || materials.size()>65535 || cameras.size()>65535 || lights.size()>65535) throw std::runtime_error("GEOM section count exceeds its field width");
                 for(const auto& material:materials) {
                     if(!material) throw std::runtime_error("Null material");
                     checkName(material->name);
@@ -482,6 +506,8 @@ namespace dsts::geom
 
                 header.mesh_count = meshes.size();
                 header.material_count = materials.size();
+                header.camera_count = cameras.size();
+                header.light_count = lights.size();
                 header.ibpm_count = skeleton.bones.size();
 
                 binary::NameTableHeader nameTable;
@@ -734,14 +760,22 @@ namespace dsts::geom
                 }
 
                 std::vector<binary::Ibpm> ibpms(skeleton.bones.size());
-                size_t ibpmsBase = align(lastMaterialEnd,0x10);
+                const size_t lightsBase = align(lastMaterialEnd,0x10);
+                header.light_offset = lights.empty() ? 0 : lightsBase;
+                const size_t camerasBase = align(lightsBase+lights.size()*sizeof(LightRecord),0x10);
+                header.camera_offset = cameras.empty() ? 0 : camerasBase;
+                size_t ibpmsBase = align(camerasBase+cameras.size()*sizeof(CameraRecord),0x10);
                 header.ibpm_offset = ibpmsBase;
 
-                for (int i = 0; i < skeleton.bones.size(); i++) {
-                    if (skeleton.bones[i]->is_geometry) {
-                        ibpms[i] = Ibpm();
-                    } else {
-                        ibpms[i] = ibpmFromMatrix(ComputeInverseBindPose(skeleton.bones[i]));
+                if(hasSourceIbpm && sourceBindPose==bindPose()) {
+                    ibpms=sourceIbpm;
+                } else {
+                    for (int i = 0; i < skeleton.bones.size(); i++) {
+                        if (skeleton.bones[i]->is_geometry) {
+                            ibpms[i] = Ibpm();
+                        } else {
+                            ibpms[i] = ibpmFromMatrix(ComputeInverseBindPose(skeleton.bones[i]));
+                        }
                     }
                 }
 
@@ -792,6 +826,14 @@ namespace dsts::geom
                         f.write(reinterpret_cast<char*>(materialSettings[i].data()), sizeof(binary::ShaderSetting) * materialSettings[i].size());
                     }
 
+                    if(!lights.empty()) {
+                        f.seekp(lightsBase);
+                        f.write(reinterpret_cast<const char*>(lights.data()),lights.size()*sizeof(LightRecord));
+                    }
+                    if(!cameras.empty()) {
+                        f.seekp(camerasBase);
+                        f.write(reinterpret_cast<const char*>(cameras.data()),cameras.size()*sizeof(CameraRecord));
+                    }
                     f.seekp(ibpmsBase);
                     f.write(reinterpret_cast<char*>(ibpms.data()), sizeof(binary::Ibpm) * ibpms.size());
 

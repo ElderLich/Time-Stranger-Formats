@@ -1,5 +1,11 @@
 # Binary safety milestone
 
+This records the initial safety milestone (`81d27bf`). Subsequent
+[scene-record preservation](scene-records.md) implements cameras, lights and
+float channels, preserves source inverse bind matrices and fixes flagged parent
+indices. The original unsupported-section counts below describe that first
+milestone, not the current backend's supported features.
+
 The GEOM 316 reader validates byte ranges, counts and cross references before
 allocating arrays or indexing objects. Malformed data raises a Python exception;
 it must not terminate the host process through a C++ assertion. Setting

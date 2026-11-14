@@ -8,6 +8,7 @@ from . import material
 from . import utils
 from . import dsts_formats
 from . import data
+from .export_guard import mark_geom_sections, require_supported_export
 from pathlib import Path
 
 def import_geom(context, filepath):
@@ -15,12 +16,20 @@ def import_geom(context, filepath):
     error_list_old = dsts_formats.get_error_list()
     dsts_formats.set_throw_errors(False)
     dsts_formats.set_error_list([])
+    try:
+        return _import_geom(context, filepath)
+    finally:
+        dsts_formats.set_throw_errors(error_state_old)
+        dsts_formats.set_error_list(error_list_old)
 
+
+def _import_geom(context, filepath):
     geom = dsts_formats.Geom.from_file(filepath)
 
     # Create collection
     new_collection = bpy.data.collections.new(name="Geom")
     context.scene.collection.children.link(new_collection)
+    mark_geom_sections(new_collection, geom)
 
     new_collection["unknown_0x10"] = geom.unknown_0x10
     new_collection["unknown_0x30"] = geom.unknown_0x30
@@ -72,11 +81,10 @@ def import_geom(context, filepath):
     if error_list:
         bpy.ops.wm.show_errors_window('INVOKE_DEFAULT', errors="\n\n".join(error_list))
 
-    dsts_formats.set_throw_errors(error_state_old)
-    dsts_formats.set_error_list(error_list_old)
     return new_collection
 
 def export_geom(collection):
+    require_supported_export(collection)
     geom = dsts_formats.Geom()
 
     geom.unknown_0x10 = collection["unknown_0x10"]
@@ -87,8 +95,7 @@ def export_geom(collection):
 
     armatures = [o for o in collection.objects if o.type == "ARMATURE"]
     if not armatures:
-        self.report({'ERROR'}, "No armature found in collection")
-        return {'CANCELLED'}
+        raise ValueError("No armature found in collection")
 
     geom.skeleton = skeleton.export_skeleton(armatures[0])
 
@@ -105,6 +112,6 @@ def export_geom(collection):
         geom.meshes.append(mesh_out)
 
     for obj in [*geom.skeleton.bones] + [*geom.materials] + [*geom.meshes]:
-        obj.name = re.sub("(\.[0-9]{3})?$", "", obj.name)
+        obj.name = re.sub(r"(\.[0-9]{3})?$", "", obj.name)
 
     return geom

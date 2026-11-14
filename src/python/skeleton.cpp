@@ -9,6 +9,7 @@ using namespace dsts::geom;
 using namespace dsts::geom::binary;
 
 PYBIND11_MAKE_OPAQUE(std::vector<std::shared_ptr<Bone>>)
+PYBIND11_MAKE_OPAQUE(std::vector<FloatChannel>)
 
 void bind_skeleton(py::module_ &m) {
     // BoneTransform
@@ -67,12 +68,12 @@ void bind_skeleton(py::module_ &m) {
         .def_readwrite("is_geometry", &Bone::is_geometry)
         .def("__repr__", [](const Bone &b){ return "<Bone :" + b.name + ">";});
 
-    // FloatChannel
-    // py::class_<FloatChannel>(m, "FloatChannel")
-    //     .def(py::init<>())
-    //     .def_readwrite("name_hash", &FloatChannel::name_hash)
-    //     .def_readwrite("array_index", &FloatChannel::array_index)
-    //     .def_readwrite("flags", &FloatChannel::flags);
+    py::class_<FloatChannel>(m, "FloatChannel")
+        .def(py::init<>())
+        .def_readwrite("name_hash", &FloatChannel::name_hash)
+        .def_readwrite("array_index", &FloatChannel::array_index)
+        .def_readwrite("flags", &FloatChannel::flags);
+    py::bind_vector<std::vector<FloatChannel>>(m, "FloatChannelList");
 
     // Skeleton
     py::bind_vector<std::vector<std::shared_ptr<Bone>>>(m, "BoneList");
@@ -84,7 +85,8 @@ void bind_skeleton(py::module_ &m) {
             make_vector_property(&Skeleton::bones).first,
             make_vector_property(&Skeleton::bones).second
         )
-        //.def_readwrite("float_channels", &Skeleton::float_channels)
+        .def_property("float_channels",make_vector_property(&Skeleton::float_channels).first,
+            make_vector_property(&Skeleton::float_channels).second)
         .def_static("from_bytes", [](py::bytes data, int skeleton_base, int base){
             Skeleton s;
             std::string buf = data;

@@ -10,8 +10,14 @@ inline void validateGeomBinary(std::istream& stream, int base) {
     dsts::CheckedBinary input(stream,static_cast<uint64_t>(base));
     const auto h=input.object<binary::GeomHeader>(0,"GEOM header");
     if(h.version!=316) throw std::runtime_error("Unsupported GEOM version (expected 316)");
-    if(h.light_count) throw std::runtime_error("GEOM lights are not supported");
-    if(h.camera_count) throw std::runtime_error("GEOM cameras are not supported");
+    if(h.light_count) {
+        if(h.light_offset<sizeof(binary::GeomHeader)) throw std::runtime_error("Invalid light record offset");
+        input.range(h.light_offset,h.light_count,LightRecord::byte_size,"Light records");
+    }
+    if(h.camera_count) {
+        if(h.camera_offset<sizeof(binary::GeomHeader)) throw std::runtime_error("Invalid camera record offset");
+        input.range(h.camera_offset,h.camera_count,CameraRecord::byte_size,"Camera records");
+    }
     input.range(h.skeleton_offset,h.skeleton_file_size,1,"Embedded skeleton");
     Skeleton skeleton; skeleton.read(stream,h.skeleton_offset,static_cast<uint64_t>(base));
     if(h.ibpm_count!=skeleton.bones.size()) throw std::runtime_error("Inverse bind matrix count does not match skeleton");

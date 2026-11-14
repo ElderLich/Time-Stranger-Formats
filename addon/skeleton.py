@@ -5,6 +5,7 @@ import sys
 import statistics
 import math
 from . import dsts_formats
+from .export_guard import mark_skeleton_sections, require_supported_export
 
 def import_skeleton(skeleton, target_collection=None, coordinate_remap=None):
     """
@@ -18,6 +19,7 @@ def import_skeleton(skeleton, target_collection=None, coordinate_remap=None):
     # Create Armature Data and Object
     armature_data = bpy.data.armatures.new("Skeleton")
     armature_obj = bpy.data.objects.new("Geom", armature_data)
+    mark_skeleton_sections(armature_obj, skeleton)
     
     # Link to the target collection, fallback to current collection
     if target_collection is not None:
@@ -155,6 +157,7 @@ def import_skeleton(skeleton, target_collection=None, coordinate_remap=None):
     return armature_obj
 
 def export_skeleton(skeleton_obj, coord_transform = Matrix.Rotation(math.radians(-90), 4, 'X')):
+    require_supported_export(skeleton_obj)
     skeleton = skeleton_obj.data
     skeleton_out = dsts_formats.Skeleton()
 

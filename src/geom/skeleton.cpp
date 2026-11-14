@@ -4,6 +4,7 @@
 #include <cstddef> 
 #include <vector>
 #include <array>
+#include <algorithm>
 #include <string>
 #include <memory>
 
@@ -37,17 +38,28 @@ namespace dsts::geom
             }
     };
 
-    // class FloatChannel {
-    //     public:
-    //         uint32_t name_hash;
-    //         uint32_t array_index;
-    //         uint8_t flags;
-    // };
+    // Preserve native binding metadata without guessing how a target consumes it.
+    struct FloatChannel {
+        uint32_t name_hash = 0;
+        uint32_t array_index = 0;
+        uint8_t flags = 0;
+    };
 
     class Skeleton {
+        std::vector<std::array<uint16_t,2>> sourceParentPairs;
+        std::vector<uint16_t> sourceParentTable;
+        std::vector<int> sourceParents;
+        bool hasSourceParents=false;
+
+        std::vector<int> parentIndices() const {
+            std::vector<int> result;
+            result.reserve(bones.size());
+            for(const auto& bone:bones) result.push_back(bone->parent ? getIndex(bones,bone->parent) : -1);
+            return result;
+        }
         public:
             std::vector<std::shared_ptr<Bone>> bones;
-            //std::vector<FloatChannel> float_channels;
+            std::vector<FloatChannel> float_channels;
 
             bool allParentsValid() const {
                 for (const auto& bone : bones) {
@@ -70,6 +82,7 @@ namespace dsts::geom
 
             void validate() const {
                 if (bones.size() > 0x7FFF) throw std::runtime_error("Skeleton has too many bones for its parent encoding");
+                if (float_channels.size() > 65535) throw std::runtime_error("Skeleton has too many float channels");
                 std::unordered_map<const Bone*, size_t> lookup;
                 for (size_t i=0; i<bones.size(); ++i) {
                     if (!bones[i] || !lookup.emplace(bones[i].get(),i).second)
@@ -108,10 +121,10 @@ namespace dsts::geom
                 dsts::CheckedBinary input(f,origin);
                 const auto header=input.object<binary::SkeletonHeader>(0,"Skeleton header");
                 if(std::memcmp(header.magic,"60SE",4)!=0) throw std::runtime_error("Unsupported skeleton magic");
-                if(header.float_channel_count) throw std::runtime_error("Skeleton float channels are not supported");
                 if(header.bone_count>0x7FFF) throw std::runtime_error("Unsupported skeleton parent encoding");
                 input.range(0,header.skeleton_file_size,1,"Skeleton size");
                 if(header.skeleton_file_size<sizeof(header)) throw std::runtime_error("Invalid skeleton size");
+                input.limit(header.skeleton_file_size,"Skeleton size");
                 if(header.bone_count && header.bone_parent_vector_size!=2)
                     throw std::runtime_error("Unsupported bone parent vector size");
                 auto pairs=input.array<std::array<uint16_t,2>>(sizeof(header),header.bone_parent_pairs_count,"Bone parent pairs");
@@ -121,12 +134,26 @@ namespace dsts::geom
                     offsetof(binary::SkeletonHeader,bone_name_hashes_offset),"Bone hashes"),header.bone_count,"Bone hashes");
                 auto table=input.array<uint16_t>(dsts::checkedAdd(header.parent_bones_offset,
                     offsetof(binary::SkeletonHeader,parent_bones_offset),"Parent indices"),header.bone_count,"Parent indices");
+                std::vector<FloatChannel> channels;
+                if(header.float_channel_count) {
+                    if(!header.float_channel_array_indices_offset || !header.float_channel_name_hashes_offset || !header.float_channel_flags_offset)
+                        throw std::runtime_error("Float channel table has a null offset");
+                    auto indices=input.array<uint32_t>(dsts::checkedAdd(header.float_channel_array_indices_offset,
+                        offsetof(binary::SkeletonHeader,float_channel_array_indices_offset),"Float channel indices"),header.float_channel_count,"Float channel indices");
+                    auto channelHashes=input.array<uint32_t>(dsts::checkedAdd(header.float_channel_name_hashes_offset,
+                        offsetof(binary::SkeletonHeader,float_channel_name_hashes_offset),"Float channel hashes"),header.float_channel_count,"Float channel hashes");
+                    auto flags=input.array<uint8_t>(dsts::checkedAdd(header.float_channel_flags_offset,
+                        offsetof(binary::SkeletonHeader,float_channel_flags_offset),"Float channel flags"),header.float_channel_count,"Float channel flags");
+                    channels.resize(header.float_channel_count);
+                    for(size_t i=0;i<channels.size();++i) channels[i]={channelHashes[i],indices[i],flags[i]};
+                }
                 std::vector<int> parents(header.bone_count,-1);
                 std::vector<bool> seen(header.bone_count,false);
                 for(auto index:table) {
                     if(index>=pairs.size()) throw std::runtime_error("Bone parent pair index is out of range");
                     auto bone=pairs[index][0], parent=pairs[index][1];
-                    if(parent>0x7FFF) parent-=0x7FFF; // Preserve the existing captured parent encoding.
+                    // Native 0x1402E2C90 masks the high bit before parent lookup.
+                    parent &= 0x7FFF;
                     if(bone>=header.bone_count || (parent!=0x7FFF && parent>=header.bone_count))
                         throw std::runtime_error("Bone or parent index is out of range");
                     if(seen[bone]) throw std::runtime_error("Duplicate bone parent assignment");
@@ -139,7 +166,9 @@ namespace dsts::geom
                     auto bone=std::make_shared<Bone>();bone->transform=transforms[i];bone->name_hash=hashes[i];parsed.push_back(bone);
                 }
                 for(size_t i=0;i<parsed.size();++i) if(parents[i]>=0) parsed[i]->parent=parsed[parents[i]];
-                bones=std::move(parsed);validate();
+                bones=std::move(parsed);float_channels=std::move(channels);validate();
+                sourceParentPairs=std::move(pairs);sourceParentTable=std::move(table);
+                sourceParents=std::move(parents);hasSourceParents=true;
             }
 
             uint64_t write(std::ostream& f, int skeleton_base = 0, int base = 0) {
@@ -152,6 +181,7 @@ namespace dsts::geom
                 uint64_t skeleton_start = f.tellp();
 
                 header.bone_count = bones.size();
+                header.float_channel_count = float_channels.size();
                 header.bone_parent_pairs_count = bones.size();
                 header.bone_parent_vector_size = 2;
 
@@ -181,6 +211,15 @@ namespace dsts::geom
                     }
                 }
 
+                if(hasSourceParents && sourceParents==parentIndices()) {
+                    bone_parent_pairs=sourceParentPairs;
+                    parent_bones=sourceParentTable;
+                    header.bone_parent_pairs_count=bone_parent_pairs.size();
+                } else if(hasSourceParents && std::any_of(sourceParentPairs.begin(),sourceParentPairs.end(),
+                    [](const auto& pair){return (pair[1]&0x8000)!=0;})) {
+                    throw std::runtime_error("Changing a flagged skeleton hierarchy is not supported");
+                }
+
                 f.seekp(skeleton_start+sizeof(binary::SkeletonHeader));
                 f.write(reinterpret_cast<char*>(bone_parent_pairs.data()), sizeof(uint16_t) * 2 * bone_parent_pairs.size());
 
@@ -192,10 +231,23 @@ namespace dsts::geom
                 header.parent_bones_offset = (uint64_t)(f.tellp()) - (skeleton_start + offsetof(binary::SkeletonHeader, parent_bones_offset));
                 f.write(reinterpret_cast<char*>(parent_bones.data()), sizeof(uint16_t) * parent_bones.size());
 
+                // Captured 60SE layout: byte flags follow the parent indices;
+                // the hash section contains bone hashes, float indices, hashes.
+                alignStream(f, 0x4);
+                header.float_channel_flags_offset = static_cast<uint64_t>(f.tellp()) -
+                    (skeleton_start + offsetof(binary::SkeletonHeader,float_channel_flags_offset));
+                for(const auto& channel:float_channels) f.write(reinterpret_cast<const char*>(&channel.flags),sizeof(channel.flags));
+
                 alignStream(f, 0x10);
                 uint64_t hashes_section_start = f.tellp();
                 header.bone_name_hashes_offset = (uint64_t)(f.tellp()) - (skeleton_start + offsetof(binary::SkeletonHeader, bone_name_hashes_offset));
                 f.write(reinterpret_cast<char*>(bone_name_hashes.data()), sizeof(uint32_t) * bone_name_hashes.size());
+                header.float_channel_array_indices_offset = static_cast<uint64_t>(f.tellp()) -
+                    (skeleton_start + offsetof(binary::SkeletonHeader,float_channel_array_indices_offset));
+                for(const auto& channel:float_channels) f.write(reinterpret_cast<const char*>(&channel.array_index),sizeof(channel.array_index));
+                header.float_channel_name_hashes_offset = static_cast<uint64_t>(f.tellp()) -
+                    (skeleton_start + offsetof(binary::SkeletonHeader,float_channel_name_hashes_offset));
+                for(const auto& channel:float_channels) f.write(reinterpret_cast<const char*>(&channel.name_hash),sizeof(channel.name_hash));
                 
                 uint64_t before_pad = f.tellp();
                 alignStream(f, 0x10);

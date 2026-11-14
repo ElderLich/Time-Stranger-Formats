@@ -141,15 +141,14 @@ public:
 
         det = m[0][0]*inv(0,0) + m[0][1]*inv(1,0) + m[0][2]*inv(2,0) + m[0][3]*inv(3,0);
 
-        if(det == 0) {
-            std::cerr << "Matrix is singular and cannot be inverted!" << std::endl;
-            return Matrix(); // Return identity as fallback
-        }
+        if(!std::isfinite(det) || det == 0)
+            throw std::runtime_error("Matrix is singular or non-finite and cannot be inverted");
 
         float invDet = 1.0f / det;
         for(int i=0;i<4;i++)
             for(int j=0;j<4;j++)
-                inv(i,j) *= invDet;
+                if(!std::isfinite(inv(i,j) *= invDet))
+                    throw std::runtime_error("Matrix inverse is non-finite");
 
         return inv;
     }
