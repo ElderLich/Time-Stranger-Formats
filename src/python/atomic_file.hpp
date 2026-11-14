@@ -5,6 +5,13 @@
 
 namespace dsts::python {
 
+// Python uses the platform's Unicode-aware filesystem API. Narrow ifstream
+// paths on Windows cannot reopen otherwise valid exports such as 光.geom.
+inline std::string read_file(const pybind11::str& filename) {
+    const auto path=pybind11::module_::import("pathlib").attr("Path")(filename);
+    return path.attr("read_bytes")().cast<std::string>();
+}
+
 // Call only with the GIL held. Both public backend file writers share this
 // publication path after their complete serialization/validation succeeds.
 inline void atomic_write(const pybind11::str& filename, const std::string& bytes) {

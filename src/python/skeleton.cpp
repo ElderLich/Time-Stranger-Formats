@@ -97,13 +97,8 @@ void bind_skeleton(py::module_ &m) {
         }, py::arg("data"), py::arg("skeleton_base")=0, py::arg("base")=0)
         .def_static("from_file", [](py::str filename, int skeleton_base, int base){
             Skeleton s;
-            std::ifstream f(filename, std::ios::binary);
-            if (!f.good()) {
-                PyErr_SetString(PyExc_FileNotFoundError, ("File not found: " + std::string(filename)).c_str());
-                throw py::error_already_set();
-            }
+            std::istringstream f(dsts::python::read_file(filename), std::ios::binary);
             s.read(f, skeleton_base, base);
-            f.close();
             return s;
         }, py::arg("data"), py::arg("skeleton_base")=0, py::arg("base")=0)
         .def("to_bytes", [](Skeleton &s) {

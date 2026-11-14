@@ -189,6 +189,10 @@ class SafetyTests(unittest.TestCase):
                         self.assertEqual(list(Path(folder).iterdir()), [output])
                 document.to_file(str(output))
                 self.assertEqual(output.read_bytes(), document.to_bytes())
+                reopened = type(document).from_file(str(output))
+                self.assertEqual(reopened.to_bytes(), document.to_bytes())
+                with self.assertRaises(FileNotFoundError):
+                    type(document).from_file(str(Path(folder) / 'missing-雪.native'))
 
     def test_contiguous_palette_flag_matches_native_upload(self):
         geom=example(); root=geom.skeleton.bones[0]

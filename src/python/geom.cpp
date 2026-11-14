@@ -109,13 +109,8 @@ void bind_geom(py::module_ &m) {
         }, py::arg("data"), py::arg("base")=0)
         .def_static("from_file", [](py::str filename, int base){
             Geom geom;
-            std::ifstream f(filename, std::ios::binary);
-            if (!f.good()) {
-                PyErr_SetString(PyExc_FileNotFoundError, ("File not found: " + std::string(filename)).c_str());
-                throw py::error_already_set();
-            }
+            std::istringstream f(dsts::python::read_file(filename), std::ios::binary);
             geom.read(f, base);
-            f.close();
             return geom;
         }, py::arg("data"), py::arg("base")=0)
         .def("to_bytes", [](Geom &g) {
