@@ -9,6 +9,10 @@
 - `addon/effect_bson.py` adds source-preserving existing effect field edits and
   validated inter-set attachments. It reuses the SPRK module's atomic output
   helper. See [effect BSON API](effect-bson.md) for boundaries and evidence.
+- `LightRecord` adds readonly `native_type`, `native_slot`, and
+  `supports_optical_editing`; `color_rgb`/`intensity` edits are type-gated to0/2/3,
+  and `range` to0. Other types remain exact raw records and reject these edits.
+  Native float-channel indices0..2 address RGB; index3 addresses intensity.
 
 - Shader parameter names now match the supported native executable. Numeric
   IDs retain their original meaning. Consumers should use IDs for texture

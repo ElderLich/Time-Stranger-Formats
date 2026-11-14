@@ -15,6 +15,8 @@ home for the backend used by
 
 - Reads and writes `.geom` meshes, vertex attributes, skinning, skeletons and materials.
 - Preserves native camera/light records and ordered skeleton float-channel bindings.
+- Edits verified native light RGB/intensity (types0/2/3) and point range (type0),
+  retaining other words and rejecting unverified light types.
 - Preserves complete material pass metadata and rejects invalid static texture bindings using typed native descriptors.
 - Keeps original inverse bind matrices for unchanged rigs, including through compact project snapshots.
 - Checks binary ranges and object references before access; unsupported sections fail explicitly.
@@ -72,7 +74,7 @@ bind-pose snapshots in a project.
 
 ## Verified scope
 
-The CPython 3.13 Windows x64 backend passes **15 safety test groups**,
+The CPython 3.13 Windows x64 backend passes **16 safety test groups**,
 **10 material-contract tests** and **3 build/package tests**. A deterministic
 100-character sample and seven scene fixtures pass structural round trips,
 including exact comparisons of camera/light records, float bindings, inverse

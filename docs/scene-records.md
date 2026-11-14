@@ -1,7 +1,8 @@
 # Camera, light and float-channel preservation
 
 The backend preserves native GEOM 316 camera and light records, plus ordered
-60SE skeleton float-channel bindings. This is a binary data API. It does not
+60SE skeleton float-channel bindings. Verified light types now expose bounded
+RGB/intensity and point-range editing. This is a binary data API. It does not
 render lights, play animation, or translate these records into Blender objects.
 
 ## Native evidence
@@ -43,7 +44,7 @@ geom.skeleton.float_channels = [channel]
 `CameraRecord.raw` and `LightRecord.raw` are owned byte snapshots and accept only
 56 and 240 bytes respectively. Camera properties expose `name_hash`,
 `fov_degrees`, `near`, `far`, `orthographic_scale` and the raw `projection_flag`.
-The light API exposes `name_hash` and `raw`; optical fields stay opaque.
+The light API exposes `name_hash`, `raw` and the bounded optical fields below.
 Unknown words and runtime pointer slots are retained exactly. New raw records
 start zeroed; applications must author a valid native record before use.
 
@@ -52,6 +53,62 @@ does not reinterpret unknown flags, deduplicate channels, rename their targets,
 or validate whether a particular shader accepts a binding. Renaming a material,
 camera or bone requires the caller to update its associated target hashes.
 ANIM float samples are separate from these GEOM binding tables.
+
+## Verified light fields
+
+`LightRecord.native_type` and `native_slot` expose the native uint16 fields at
+offsets4/6 read-only. For types0/2/3, `supports_optical_editing` is true and
+`color_rgb` edits the three float32 values at40/44/48, while `intensity` edits
+the multiplier at8. Type0 additionally exposes `range` at12. Setters validate
+all components before mutation, require finite nonnegative values and retain
+all other bytes. They allow intentional zero and RGB values above1; no implicit
+gamma conversion or HDR clamping is applied. Imported out-of-profile values
+remain raw-preservable instead of being normalized.
+
+The evidence is in the existing `figure-geom` native listings:
+
+| Function | Established behavior |
+| --- | --- |
+| `0x1402E34F0` | Dispatches the native uint16 type at +4; type0 copies point data, type2 directly multiplies RGB40 by intensity8, type3 supplies the bone Z direction and RGB/intensity to the directional renderer. Type4 follows a distinct environment record path. |
+| `0x1402E2F90` | Type0 gets its world position from the bound bone; copies intensity8/RGB40 and scales range12 by the length of the bone's first matrix axis. |
+| `0x1402D3DE0` | Builds point-light GPU records; multiplies source intensity and RGB, retains the range alongside world position and uses it in spatial bounds. |
+| `0x1402E1640` | Light float-channel indices0/1/2 bind offsets40/44/48; index3 binds offset8. Indices4..6 bind56/60/64 but their additional optical meaning is not exposed. |
+
+The local inventory examined15,640 GEOM headers: type0 appeared1,520 times,
+type2 140, type3 154, type4 209 and type7 seven. Types1/5 were found in runtime
+branches but have no fixture in that inventory, so their optical setters remain
+unsupported. The native `d0101sun.geom` family independently corroborates type3
+as directional/sun. Type0 has position/range without orientation, establishing
+the point-light interpretation. Type2 is retained as native type2; its extra
+color vector and position-derived environment direction must not be flattened
+into a generic Blender point light. Type4 is not an ordinary light.
+
+```python
+light = geom.lights[selected_index]
+if light.supports_optical_editing:
+    light.color_rgb = (1.0, 0.5, 0.0)
+    light.intensity = 2.0
+if light.native_type == 0:
+    light.range = 10.0
+```
+
+New arbitrary lights, changing type/slot, cone parameters, attenuation law,
+shadow fields and physical watt/exposure equivalence are not established.
+Blender preview must identify its limits and preserve native values separately.
+Directional axis/sign conversion needs a verified preview adapter; do not assume
+Blender's emission direction matches the stored native bone axis.
+
+`tests/test_binary_safety.py` verifies scoped changes, raw retention, HDR/zero
+values and atomic rejection of malformed edits/unsupported types. The local
+`light-edit-validation.json` report records successful edit/export/re-import of
+four records in three actual fixtures: DLC `ef_b_chr689_bs01.geom` (type0),
+`d0101l.geom` (types2/0), and `d0101sun.geom` (type3). Every unedited light byte
+survives. Source files and live mods are unchanged; game behavior of these new
+edited fixtures is not yet accepted.
+
+```powershell
+python tools/audit_light_records.py --module-dir build-parser/Release --report local/light-edit-validation.json PATH_TO_LIGHT_GEOM
+```
 
 ## Bind-pose preservation
 

@@ -310,7 +310,14 @@ struct Material<auto header, auto name_table> {
 struct Light<auto header> {
     // Native 0x1402E0450: copies 240 bytes; first word binds a skeleton bone.
     u32 name_hash;
-    u8 unknown_0x04[236];
+    u16 native_type;
+    u16 native_slot;
+    // Established for types0/2/3; other types have distinct interpretations.
+    float intensity;
+    float point_range; // Only type0; multiplied by first bone-axis scale.
+    u8 unknown_0x10[24];
+    float color_rgb[3];
+    u8 unknown_0x34[188];
 } [[fixed_size(240)]];
 
 struct Camera<auto header> {

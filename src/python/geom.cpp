@@ -27,7 +27,13 @@ void bind_geom(py::module_ &m) {
             if(bytes.size()!=LightRecord::byte_size) throw std::runtime_error("Light record must contain exactly 240 bytes");
             std::memcpy(light.raw.data(),bytes.data(),bytes.size());
         })
-        .def_property("name_hash",&LightRecord::name_hash,&LightRecord::set_name_hash);
+        .def_property("name_hash",&LightRecord::name_hash,&LightRecord::set_name_hash)
+        .def_property_readonly("native_type",&LightRecord::native_type)
+        .def_property_readonly("native_slot",&LightRecord::native_slot)
+        .def_property_readonly("supports_optical_editing",&LightRecord::supports_optical_editing)
+        .def_property("color_rgb",&LightRecord::color_rgb,&LightRecord::set_color_rgb)
+        .def_property("intensity",&LightRecord::intensity,&LightRecord::set_intensity)
+        .def_property("range",&LightRecord::range,&LightRecord::set_range);
     py::class_<CameraRecord>(m,"CameraRecord")
         .def(py::init<>())
         .def_property("raw",[](const CameraRecord& camera) {

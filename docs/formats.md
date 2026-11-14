@@ -14,7 +14,7 @@ unknown fields remain explicitly unknown.
 | Skeleton float channels | Ordered uint32 indices, uint32 target hashes and uint8 flags preserved | Binding metadata only; no ANIM samples. Target renames and shader compatibility remain caller responsibilities. |
 | Materials | All fourteen shader slots, opaque headers, uniform/setting records; 791 typed native descriptors; independent material cloning and static texture guards | Parameter schema is pinned; special type codes stay opaque. Shader linkage and runtime pass output compatibility require separate checks. |
 | Cameras | Exact 56-byte records, bone hash and verified FOV/near/far/orthographic-scale/projection fields | Other words remain opaque; no camera animation player or Blender camera conversion here. |
-| Lights | Exact 240-byte records and bone hash | Optical parameters remain opaque; no light renderer or Blender light conversion here. |
+| Lights | Exact 240-byte records; readonly native type/slot; verified RGB/intensity edits for types0/2/3 and point range for type0 | Other types and cone/attenuation/shadow words remain opaque. No complete light renderer or arbitrary new-light authoring. See [native light fields](scene-records.md#verified-light-fields). |
 | CLUT | Full color-table byte preservation with length-checked assignment | Python reads return owned snapshots. |
 | Mesh controllers | Explicitly unsupported | Mandatory rejection even when collecting semantic diagnostics. |
 | NLST | Reference add-on writes companion name lists | Not a general NLST parser; broader type coverage and ordering need separate validation. |
@@ -67,11 +67,14 @@ for every future Blender 5.x Python ABI or native game acceptance of all exports
 
 Validated on 2026-11-14 with CPython 3.13.14, pybind11 3.0.4 and MSVC 19.44:
 
-- **15 safety groups:** truncated/malformed binaries, checked array APIs, scene
+- **16 safety groups:** truncated/malformed binaries, checked array APIs, scene
   records, parent flags, bind-matrix snapshots, singular edits and reference
   add-on export guards, mandatory contiguous-palette fast-path validation,
   four-lane parent-pair authoring/preservation, and injected fsync/publication
   failures protecting an existing Unicode-named output.
+- **Four native light records in three files:** RGB/intensity and applicable
+  point range edited, exported and re-imported with every other record byte
+  unchanged. Invalid fields/types are rejected atomically; zero/HDR values survive.
 - **8 SPRK tests and four real fixtures:** exact preservation, scoped transform,
   timing/resource/key edits, truncation/graph guards and atomic failure cleanup.
   All four real fixtures exported and reopened with untouched bytes identical;

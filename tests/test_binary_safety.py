@@ -311,6 +311,45 @@ class SafetyTests(unittest.TestCase):
         for length in range(len(skeleton)):
             with self.assertRaises(Exception):formats.Skeleton.from_bytes(skeleton[:length])
 
+    def test_light_optical_fields_are_scoped_and_type_gated(self):
+        geom = example()
+        light = formats.LightRecord()
+        raw = bytearray(range(240))
+        struct.pack_into('<H', raw, 4, 0)
+        light.raw = bytes(raw)
+        light.name_hash = geom.skeleton.bones[0].name_hash
+        self.assertEqual(light.native_type, 0)
+        self.assertTrue(light.supports_optical_editing)
+        original = light.raw
+        light.color_rgb = [2.0, 0.25, 0.0]  # HDR and intentional zero retained.
+        light.intensity = 3.0
+        light.range = 12.0
+        allowed = set(range(8, 16)) | set(range(40, 52))
+        self.assertTrue(all(a == b or i in allowed for i, (a, b) in enumerate(zip(original, light.raw))))
+        geom.lights = [light]
+        readback = formats.Geom.from_bytes(geom.to_bytes()).lights[0]
+        self.assertEqual(readback.raw, light.raw)
+        self.assertEqual(list(readback.color_rgb), [2.0, .25, 0.0])
+        self.assertEqual(readback.intensity, 3)
+        self.assertEqual(readback.range, 12)
+        unchanged = light.raw
+        for name, value in [('color_rgb', [1, float('nan'), 0]), ('color_rgb', [-1, 0, 0]),
+                            ('intensity', -1), ('intensity', float('inf')), ('range', -1)]:
+            with self.subTest(name=name, value=value), self.assertRaises(Exception):
+                setattr(light, name, value)
+            self.assertEqual(light.raw, unchanged)
+        for native_type in (1, 4, 5, 7, 65535):
+            raw = bytearray(light.raw);struct.pack_into('<H', raw, 4, native_type);light.raw = bytes(raw)
+            self.assertFalse(light.supports_optical_editing)
+            with self.assertRaisesRegex(RuntimeError, 'remain opaque'): light.intensity = 1
+            self.assertEqual(light.raw, raw)
+        for native_type in (2, 3):
+            raw = bytearray(light.raw);struct.pack_into('<H', raw, 4, native_type);light.raw = bytes(raw)
+            light.intensity = 0
+            light.color_rgb = [1, 1, 1]
+            self.assertTrue(light.supports_optical_editing)
+            with self.assertRaisesRegex(RuntimeError, 'type0'): light.range = 1
+
     def test_original_bind_matrices_survive_unchanged_pose(self):
         geom=formats.Geom();bone=formats.Bone();bone.name='root';geom.skeleton.bones=[bone]
         original=bytearray(geom.to_bytes());offset=struct.unpack_from('<Q',original,0x68)[0]
