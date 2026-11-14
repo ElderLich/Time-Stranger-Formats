@@ -1,9 +1,10 @@
 # Requirements for a future shared effect codec
 
-**SPRK/SPAK and effect BSON are not implemented in this backend.** This document
-defines requirements exposed by the separate native cinematic research. It
-does not add format support, Python APIs, an ABI change, or a generic scale
-validator. Existing GEOM, material, animation-adapter and upstream
+**SPRK/SPAK now has a bounded maintained Python editing API; effect BSON remains
+research-only.** See [current SPRK editing](spark-editing.md) for actual coverage.
+This document retains the broader requirements exposed by native cinematic
+research, including contracts that remain unimplemented. Existing GEOM,
+material, animation-adapter and upstream
 Named-Blade/Nymic_Razor attribution remain unchanged.
 
 The evidence applies to the captured SPAK version140 and executable SHA-256

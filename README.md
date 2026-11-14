@@ -20,6 +20,9 @@ home for the backend used by
 - Checks binary ranges and object references before access; unsupported sections fail explicitly.
 - Exposes geometry objects through the compiled `dsts_formats` Python module.
 - Generates companion `.nlst` name lists through the reference Blender adapter.
+- Edits established SPAK v140 transform ranges, timing, resources and fixed-size
+  curves through the dependency-free [SPRK API](docs/spark-editing.md), preserving
+  every unrelated source byte.
 - Includes ImHex patterns and shader parameter definitions for format research.
 
 This is the format backend. For the complete Blender workflow, animations and
@@ -67,7 +70,7 @@ bind-pose snapshots in a project.
 
 ## Verified scope
 
-The CPython 3.13 Windows x64 backend passes **12 safety test groups**,
+The CPython 3.13 Windows x64 backend passes **15 safety test groups**,
 **10 material-contract tests** and **3 build/package tests**. A deterministic
 100-character sample and seven scene fixtures pass structural round trips,
 including exact comparisons of camera/light records, float bindings, inverse
@@ -75,6 +78,9 @@ bind matrices, parent tables and complete material pass/parameter records. The c
 **Blender 5.1 and 5.3** with this backend.
 
 These checks do not establish complete format support or game acceptance.
+The SPRK API additionally passes eight malformed-input/edit/write-failure tests
+and scoped edit/export/reopen checks on three native donors and the retained
+Revision 14 actor effect. It does not implement a complete particle simulator.
 Mesh controllers and edits to flagged skeleton hierarchies fail explicitly;
 bounds are still recomputed on export. The reference add-on blocks exports
 that would discard scene or binding metadata. Use the maintained importer for

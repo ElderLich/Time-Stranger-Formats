@@ -19,7 +19,7 @@ unknown fields remain explicitly unknown.
 | Mesh controllers | Explicitly unsupported | Mandatory rejection even when collecting semantic diagnostics. |
 | NLST | Reference add-on writes companion name lists | Not a general NLST parser; broader type coverage and ordering need separate validation. |
 | ANIM | Not implemented here | Time Stranger Importer supplies its separate animation serializer. |
-| SPRK / effect BSON | Not implemented here | Native cinematic tooling lives in the separate research project. [Future codec requirements](future-effect-codec.md) distinguish raw preservation from generated-profile defaults and explicit migrations. |
+| SPRK / SPAK v140 | Dependency-free [typed source-preserving editing](spark-editing.md) of supported common transforms/timing, resources and fixed-count constant/linear keys; graph validation and atomic output | No emitter-module simulation, graph creation/deletion, socket-owner editing or complete particle preview. Unknown nodes/chunks are retained read-only. Effect BSON remains separate research tooling. |
 | Math | Existing transforms and X-mirror; safe inverse failure | Mirror-Y/mirror-Z TODOs have not been promoted to supported behavior. |
 
 The [scene-record documentation](scene-records.md) lists native functions,
@@ -35,9 +35,10 @@ that differ from recomputed bounds; it does not bypass mandatory safety checks
 or authorize dropping an unsupported section. Inspect `get_error_list()` after
 using collection mode.
 
-File export serializes and validates before opening an existing destination, so
-invalid objects do not truncate it. A later disk-write failure is still possible;
-the file API is not an atomic replacement operation. Python mesh/material/CLUT
+GEOM file export serializes and validates into memory, writes/flushed-syncs a
+temporary sibling, then atomically replaces the destination. Failed writes or
+replacement leave the original intact. SPRK additionally defaults to rejecting
+existing outputs and supports an expected SHA256 guard. Python mesh/material/CLUT
 snapshots own their storage and stay valid after deleting or resizing the source.
 
 Exact preservation applies to the documented records and unchanged source bind
@@ -65,10 +66,15 @@ for every future Blender 5.x Python ABI or native game acceptance of all exports
 
 Validated on 2026-11-14 with CPython 3.13.14, pybind11 3.0.4 and MSVC 19.44:
 
-- **14 safety groups:** truncated/malformed binaries, checked array APIs, scene
+- **15 safety groups:** truncated/malformed binaries, checked array APIs, scene
   records, parent flags, bind-matrix snapshots, singular edits and reference
   add-on export guards, mandatory contiguous-palette fast-path validation,
-  and four-lane parent-pair authoring/preservation.
+  four-lane parent-pair authoring/preservation, and injected fsync/publication
+  failures protecting an existing Unicode-named output.
+- **8 SPRK tests and four real fixtures:** exact preservation, scoped transform,
+  timing/resource/key edits, truncation/graph guards and atomic failure cleanup.
+  All four real fixtures exported and reopened with untouched bytes identical;
+  three are ordinary native effects, one is the Revision 14 persistent effect.
 - **10 material-contract tests:** all typed descriptors, invalid static texture
   rejection, explicit numeric/setting checks, independent complete material
   cloning, exact pass/metadata round trips including nonzero unused numeric

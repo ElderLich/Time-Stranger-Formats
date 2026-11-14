@@ -6,6 +6,12 @@ float channels, preserves source inverse bind matrices and fixes flagged parent
 indices. The original unsupported-section counts below describe that first
 milestone, not the current backend's supported features.
 
+The current `Geom.to_file` now stages bytes in a sibling temporary file, flushes
+and syncs them, then uses the host's atomic `os.replace` operation. The old
+disk-failure limit described below is historical. Injected `fsync` and `replace`
+errors leave the existing destination unchanged and remove the temporary file;
+the successful Unicode-path test compares the final file to `to_bytes()`.
+
 The GEOM 316 reader validates byte ranges, counts and cross references before
 allocating arrays or indexing objects. Malformed data raises a Python exception;
 it must not terminate the host process through a C++ assertion. Setting

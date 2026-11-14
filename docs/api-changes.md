@@ -1,5 +1,12 @@
 # Backend 0.2 compatibility notes
 
+- `Geom.to_file` atomically replaces its destination after serialization,
+  buffered writing, flush and sync. IO failures propagate without truncating the
+  previous file. Existing replacement behavior remains explicit in this API.
+- Dependency-free `addon/spark.py` exposes API version 1 for bounded SPAK v140
+  semantic editing. It is shipped as identical source in the maintained
+  importer; it does not change the C++ extension ABI. See [SPRK API](spark-editing.md).
+
 - Shader parameter names now match the supported native executable. Numeric
   IDs retain their original meaning. Consumers should use IDs for texture
   roles and retain them when exporting Blender nodes.
