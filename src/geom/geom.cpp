@@ -20,6 +20,7 @@
 #include "../utils/stream.cpp"
 #include "../utils/align.cpp"
 #include "../utils/errors.cpp"
+#include "validation.hpp"
 
 namespace dsts::geom
 {  
@@ -36,7 +37,10 @@ namespace dsts::geom
             std::vector<std::shared_ptr<Material>> materials;
 
             void read(std::istream& f, int base = 0){
-                binary::GeomHeader header;
+                validateGeomBinary(f,base);
+                f.exceptions(std::ios::failbit | std::ios::badbit);
+                meshes.clear();materials.clear();skeleton.bones.clear();
+                binary::GeomHeader header{};
 
                 f.seekg(base);
                 f.read(reinterpret_cast<char*>(&header), sizeof(binary::GeomHeader));
@@ -64,7 +68,7 @@ namespace dsts::geom
                         if (ch == '\0') break;
                         result += ch;
                     }
-                    bone_names.push_back(result);
+                    bone_names[i] = result;
                 }
 
                 std::vector<uint64_t> material_name_offsets(nameTableHeader.material_name_count);
@@ -80,7 +84,7 @@ namespace dsts::geom
                         if (ch == '\0') break;
                         result += ch;
                     }
-                    material_names.push_back(result);
+                    material_names[i] = result;
                 }
 
                 skeleton.read(f, header.skeleton_offset, base);
@@ -159,12 +163,17 @@ namespace dsts::geom
 
                     mesh.bytes_per_vertex = meshHeaders[i].bytes_per_vertex;
 
-                    size_t totalBytes =  meshHeaders[i].bytes_per_vertex *  meshHeaders[i].vertex_count;
+                    size_t totalBytes = static_cast<size_t>(meshHeaders[i].bytes_per_vertex) * meshHeaders[i].vertex_count;
                     auto allVertices = std::make_unique<char[]>(totalBytes);
                     f.seekg(base + meshHeaders[i].vertices_offset);
                     f.read((char*)allVertices.get(), totalBytes);
 
                     unpackVertices(mesh.vertices, mesh.meshAttributes, allVertices.get(), totalBytes,  meshHeaders[i].bytes_per_vertex);
+                    for(const auto& vertex:mesh.vertices) {
+                        const auto& position=std::get<InlineVec<float>>(vertex.position.data);
+                        for(size_t j=0;j<position.size();++j)
+                            if(!std::isfinite(position[j])) throw std::runtime_error("Vertex position is not finite");
+                    }
 
                     if (meshHeaders[i].vertex_groups_per_vertex == 0) {
                         for (auto &v : mesh.vertices) {
@@ -175,6 +184,8 @@ namespace dsts::geom
                     else if (meshHeaders[i].vertex_groups_per_vertex == 1) {
                         for (auto &v : mesh.vertices) {
                             const auto& pos = std::get<InlineVec<float>>(v.position.data);
+                            if(!std::isfinite(pos[3]) || pos[3]<0 || pos[3]>255 || std::floor(pos[3])!=pos[3])
+                                throw std::runtime_error("Invalid packed vertex bone index");
                             uint8_t extractedIndex = (uint8_t)pos[3];
                             v.index.data  = InlineVec<uint8_t>{extractedIndex};
                             v.weight.data = InlineVec<float16>{(float16)1.0f};
@@ -212,10 +223,10 @@ namespace dsts::geom
                         auto transform = DecomposeMatrix(GetWorldMatrix(mesh.matrix_palette[0]));
                         std::array<float, 3> centre{transform.position[0],transform.position[1],transform.position[2]};
                         BoundingInfo info = calculateBoundingInfoGeometry<float>(pos, centre);
-                        assert(boundingEquals(info,boundingFromHeader(meshHeaders[i])));
+                        ASSERT_OR_THROW(boundingEquals(info,boundingFromHeader(meshHeaders[i])), "Mesh bounds differ from computed positions");
                     } else {
                         BoundingInfo info = calculateBoundingInfo<float>(pos);
-                        assert(boundingEquals(info,boundingFromHeader(meshHeaders[i])));
+                        ASSERT_OR_THROW(boundingEquals(info,boundingFromHeader(meshHeaders[i])), "Mesh bounds differ from computed positions");
                     }
                 }
 
@@ -248,8 +259,8 @@ namespace dsts::geom
                     auto b = *skeleton.bones[i].get();
                     auto transform_actual = DecomposeMatrix(GetWorldMatrix(b));
                     auto parent_actual = b.parent ? DecomposeMatrix(GetWorldMatrix(b.parent)) : binary::BoneTransform();
-                    assert(transformEqual(transform_actual,getAbsoluteTransform(b.transform, &parent_actual)));
-                    assert(transformEqual(b.transform,getRelativeTransform(transform_actual, &parent_actual)));
+                    ASSERT_OR_THROW(transformEqual(transform_actual,getAbsoluteTransform(b.transform, &parent_actual)), "Absolute bone transform differs from decomposition");
+                    ASSERT_OR_THROW(transformEqual(b.transform,getRelativeTransform(transform_actual, &parent_actual)), "Relative bone transform differs from decomposition");
                 }
 
                 {
@@ -269,7 +280,7 @@ namespace dsts::geom
                     h_info.bbox = {header.bbox[0],header.bbox[1],header.bbox[2]};
                     h_info.centre = {header.centre[0],header.centre[1],header.centre[2]};
 
-                    assert(boundingEquals(info,h_info));
+                    ASSERT_OR_THROW(boundingEquals(info,h_info), "GEOM bounds differ from computed positions");
                 }
 
                 std::unordered_map<uint32_t, std::string> hash_to_material_name;
@@ -413,8 +424,57 @@ namespace dsts::geom
                 ASSERT_OR_THROW(header.camera_count == 0,"Geom contains Camera data, this is not yet implemented");
             }
 
+            void validateForWrite() const {
+                skeleton.validate();
+                const auto checkName=[](const std::string& name) {
+                    if(name.find('\0')!=std::string::npos) throw std::runtime_error("Object name contains a NUL character");
+                };
+                for(const auto& bone:skeleton.bones) checkName(bone->name);
+                if(meshes.size()>65535 || materials.size()>65535) throw std::runtime_error("GEOM section count exceeds its field width");
+                for(const auto& material:materials) {
+                    if(!material) throw std::runtime_error("Null material");
+                    checkName(material->name);
+                    if(material->uniforms.size()>255 || material->settings.size()>255) throw std::runtime_error("Material parameter count exceeds its field width");
+                    for(const auto& uniform:material->uniforms) {
+                        if(const auto* values=std::get_if<std::vector<float>>(&uniform.value)) {
+                            if(values->empty() || values->size()>4) throw std::runtime_error("Float uniform requires 1 through 4 values");
+                        } else if(std::get<std::string>(uniform.value).find('\0')!=std::string::npos)
+                            throw std::runtime_error("Texture name contains a NUL character");
+                    }
+                }
+                for(const auto& mesh:meshes) {
+                    checkName(mesh.name);
+                    if(!mesh.material || getIndex(materials,mesh.material)<0) throw std::runtime_error("Mesh material is outside the GEOM");
+                    if(mesh.matrix_palette.empty() || mesh.matrix_palette.size()>65535) throw std::runtime_error("Invalid matrix palette size");
+                    for(const auto& bone:mesh.matrix_palette)
+                        if(!bone || getIndex(skeleton.bones,bone)<0) throw std::runtime_error("Matrix palette bone is outside the skeleton");
+                    if(mesh.vertices.empty()) throw std::runtime_error("Cannot write an empty mesh");
+                    if(mesh.vertices.size()>65536 || mesh.indices.size()>0xFFFFFFFFull) throw std::runtime_error("Mesh exceeds the supported 16-bit index format");
+                    if(mesh.primitive!=binary::Triangles && mesh.primitive!=binary::Triangle_strip) throw std::runtime_error("Unsupported mesh primitive");
+                    if(mesh.primitive==binary::Triangles && mesh.indices.size()%3) throw std::runtime_error("Invalid triangle-list count");
+                    for(auto index:mesh.indices) if(index>=mesh.vertices.size()) throw std::runtime_error("Mesh vertex index is out of range");
+                    if(!validateAttributeConsistency(mesh.vertices)) throw std::runtime_error("Inconsistent vertex attribute types or counts");
+                    for(const auto& vertex:mesh.vertices) {
+                        const auto* pos=std::get_if<InlineVec<float>>(&vertex.position.data);
+                        const auto* indices=std::get_if<InlineVec<uint8_t>>(&vertex.index.data);
+                        if(!pos || pos->size()<3) throw std::runtime_error("Mesh requires a float32 position with at least three components");
+                        for(size_t j=0;j<pos->size();++j) if(!std::isfinite((*pos)[j])) throw std::runtime_error("Vertex position is not finite");
+                        size_t influences=0;
+                        std::visit([&](const auto& weight) {
+                            using T=std::decay_t<decltype(weight)>;
+                            if constexpr(!std::is_same_v<T,std::monostate>) influences=weight.size();
+                        },vertex.weight.data);
+                        if(!indices || !influences || indices->size()!=influences) throw std::runtime_error("Vertex indices and weights must have matching nonzero counts");
+                        for(size_t j=0;j<indices->size();++j) if((*indices)[j]>=mesh.matrix_palette.size()) throw std::runtime_error("Vertex bone index is outside its matrix palette");
+                    }
+                }
+            }
+
             void write(std::ostream& f, int base = 0){
-                binary::GeomHeader header;
+                if(base!=0) throw std::runtime_error("Writing GEOM at a nonzero base is not supported");
+                validateForWrite();
+                f.exceptions(std::ios::failbit | std::ios::badbit);
+                binary::GeomHeader header{};
 
                 header.unknown_0x10 = unknown_0x10;
                 header.unknown_0x30 = unknown_0x30;
@@ -510,6 +570,10 @@ namespace dsts::geom
                         }
                     }
 
+                    // Weight packing can remove attributes or put the sole
+                    // influence in position.w. Serialize the rebuilt layout.
+                    mesh.meshAttributes = attrData.attributes;
+                    mesh.bytes_per_vertex = static_cast<uint16_t>(attrData.totalSizeBytes);
                     meshHeader.bytes_per_vertex = mesh.bytes_per_vertex;
 
                     meshHeader.vertices_offset = meshDataBase + meshDataSize;
@@ -613,7 +677,7 @@ namespace dsts::geom
                         binary::ShaderUniform uniform{};
 
                         if (materials[i]->uniforms[y].uniformType() == "float") {
-                            binary::FloatPayload payload;
+                            binary::FloatPayload payload{};
                             auto value = std::get<std::vector<float>>(materials[i]->uniforms[y].value);
 
                             std::copy(
@@ -626,7 +690,7 @@ namespace dsts::geom
                             uniform.payload.floats = payload;
                         } else {
                             auto value = std::get<std::string>(materials[i]->uniforms[y].value);
-                            binary::TexturePayload payload;
+                            binary::TexturePayload payload{};
 
                             payload.texture_name_offset = stringSection.add(value);
                             payload.texture_name_length = value.size();

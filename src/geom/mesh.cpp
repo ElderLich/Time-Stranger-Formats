@@ -22,10 +22,10 @@ namespace dsts::geom
     class InlineVec {
     public:
         InlineVec() = default;
-        InlineVec(size_t count) : m_size(static_cast<uint8_t>(count)) { assert(count <= Cap); }
+        InlineVec(size_t count) { resize(count); }
 
         InlineVec(std::initializer_list<T> init) {
-            assert(init.size() <= Cap);
+            if(init.size()>Cap) throw std::runtime_error("Vertex attribute exceeds inline capacity");
             m_size = static_cast<uint8_t>(init.size());
             std::copy(init.begin(), init.end(), m_data);
         }
@@ -33,10 +33,10 @@ namespace dsts::geom
         T* data() { return m_data; }
         const T* data() const { return m_data; }
         size_t size() const { return m_size; }
-        void resize(size_t n) { assert(n <= Cap); m_size = static_cast<uint8_t>(n); }
+        void resize(size_t n) { if(n>Cap) throw std::runtime_error("Vertex attribute exceeds inline capacity"); m_size = static_cast<uint8_t>(n); }
         
-        T& operator[](size_t i) { return m_data[i]; }
-        const T& operator[](size_t i) const { return m_data[i]; }
+        T& operator[](size_t i) { if(i>=m_size) throw std::out_of_range("Vertex attribute component"); return m_data[i]; }
+        const T& operator[](size_t i) const { if(i>=m_size) throw std::out_of_range("Vertex attribute component"); return m_data[i]; }
 
     private:
         T m_data[Cap]{};
@@ -71,6 +71,7 @@ namespace dsts::geom
             else if (name == "uint16")  data = InlineVec<uint16_t>(count);
             else if (name == "int32")   data = InlineVec<int32_t>(count);
             else if (name == "uint32")  data = InlineVec<uint32_t>(count);
+            else throw std::runtime_error("Unsupported vertex attribute type: " + name);
         }
         
         bool isEmpty() const { return std::holds_alternative<std::monostate>(data); }
@@ -115,16 +116,16 @@ namespace dsts::geom
     
     class Mesh{
         public:
-            uint64_t unknown_0x18;
-            uint32_t unknown_0x4C;
-            uint32_t unknown_0x50;
+            uint64_t unknown_0x18 = 0;
+            uint32_t unknown_0x4C = 0;
+            uint32_t unknown_0x50 = 0;
 
-            uint32_t name_hash;
+            uint32_t name_hash = 0;
             std::string name;
 
             std::vector<Vertex> vertices;
             std::vector<uint16_t> indices;
-            PrimitiveType primitive;
+            PrimitiveType primitive = PrimitiveType::Triangles;
 
             std::vector<MeshAttribute> meshAttributes;
             uint16_t bytes_per_vertex{};
@@ -133,16 +134,21 @@ namespace dsts::geom
 
             std::shared_ptr<Material> material;
 
-            bool flag_0;
-            bool flag_1;
-            bool flag_2;
-            bool flag_3;
-            bool flag_4;
-            bool flag_5;
-            bool flag_6;
-            bool flag_7;
+            bool flag_0 = false;
+            bool flag_1 = false;
+            bool flag_2 = false;
+            bool flag_3 = false;
+            bool flag_4 = false;
+            bool flag_5 = false;
+            bool flag_6 = false;
+            bool flag_7 = false;
 
             std::vector<uint32_t> get_indices_as_triangle_list() {
+                if(primitive!=PrimitiveType::Triangles && primitive!=PrimitiveType::Triangle_strip)
+                    throw std::runtime_error("Unsupported mesh primitive");
+                for(auto index:indices) if(index>=vertices.size()) throw std::runtime_error("Mesh vertex index out of range");
+                if(primitive==PrimitiveType::Triangles && indices.size()%3)
+                    throw std::runtime_error("Triangle list index count is not divisible by three");
                 // Case 1: It's already a Triangle List
                 // If your internal 'indices' are uint16_t, we cast them to uint32_t for safety in Python/Blender
                 // (Blender supports int loops, so 32-bit is safer for large meshes > 65k verts)
@@ -429,7 +435,7 @@ namespace dsts::geom
     };
 
     MeshAttributeResult buildMeshAttributes(const std::vector<Vertex>& vertices) {
-        MeshAttributeResult out;
+        MeshAttributeResult out{};
         if (vertices.empty())
             return out;
 
@@ -488,6 +494,21 @@ namespace dsts::geom
         VertexAttribute Vertex::* member; // Pointer to the class member
     };
 
+    void validateVertexLayout(const std::vector<binary::MeshAttribute>& descriptors, size_t stride) {
+        if(!stride) throw std::runtime_error("Vertex stride is zero");
+        bool seen[12]{};
+        for(const auto& desc:descriptors) {
+            if(desc.atype<Atype::Position || desc.atype>Atype::Weight || seen[desc.atype])
+                throw std::runtime_error("Unknown or duplicate vertex attribute");
+            seen[desc.atype]=true;
+            const auto width=elementSize(desc.dtype);
+            if(!width) throw std::runtime_error("Unsupported vertex data type");
+            if(!desc.count || desc.count>4) throw std::runtime_error("Vertex attribute count must be 1 through 4");
+            if(desc.offset>stride || desc.count*width>stride-desc.offset)
+                throw std::runtime_error("Vertex attribute exceeds its stride");
+        }
+    }
+
     void unpackVertices(
         std::vector<Vertex> &vertices,
         const std::vector<binary::MeshAttribute>& descriptors,
@@ -495,6 +516,8 @@ namespace dsts::geom
         size_t size,
         size_t vertexStride
     ) {
+        validateVertexLayout(descriptors,vertexStride);
+        if(size%vertexStride) throw std::runtime_error("Vertex buffer is not a multiple of its stride");
         if (!vertices.empty()) vertices.clear();
         
         size_t vertexCount = size / vertexStride;
@@ -565,6 +588,9 @@ namespace dsts::geom
         size_t vertexStride)
     {
         if (vertices.empty()) return "";
+        validateVertexLayout(descriptors,vertexStride);
+        if(!validateAttributeConsistency(vertices)) throw std::runtime_error("Inconsistent vertex attributes");
+        if(vertices.size()>std::string().max_size()/vertexStride) throw std::runtime_error("Vertex buffer size overflow");
 
         // 1. Pre-allocate buffer (zero-init to handle padding bytes cleanly)
         std::string buffer;
@@ -601,6 +627,16 @@ namespace dsts::geom
                 default: continue;
             }
             if (targetMember) {
+                const auto& attribute=vertices[0].*targetMember;
+                if(attribute.isEmpty()) throw std::runtime_error("Packed attribute has no vertex data");
+                const auto normalize=[](Dtype t){return t==Dtype::Float ? Dtype::Float_alias : t==Dtype::Float16 ? Dtype::Float16_alias : t;};
+                if(normalize(deduceDtype(attribute.data))!=normalize(desc.dtype))
+                    throw std::runtime_error("Packed attribute data type mismatch");
+                std::visit([&](const auto& vec) {
+                    using T=std::decay_t<decltype(vec)>;
+                    if constexpr(!std::is_same_v<T,std::monostate>)
+                        if(vec.size()!=desc.count) throw std::runtime_error("Packed attribute component count mismatch");
+                },attribute.data);
                 jobs.push_back({ desc.offset, targetMember });
             }
         }
@@ -627,8 +663,8 @@ namespace dsts::geom
                         // We use *vec.data() to deduce the inner type size.
                         size_t bytesToCopy = vec.size() * sizeof(*vec.data());
                         
-                        // Safety check (optional, depending on trust of data)
-                        // if (job.offset + bytesToCopy <= vertexStride) 
+                        if(job.offset>vertexStride || bytesToCopy>vertexStride-job.offset)
+                            throw std::runtime_error("Packed vertex write exceeds stride");
                         memcpy(vertexBase + job.offset, vec.data(), bytesToCopy);
                     }
                 }, attr.data);
@@ -703,7 +739,7 @@ namespace dsts::geom
         if (s == "color")    return Atype::Color;
         if (s == "index")    return Atype::Index;
         if (s == "weight")   return Atype::Weight;
-        return Atype{}; // or throw, or return default
+        throw std::runtime_error("Unsupported vertex attribute name: " + s);
     }
 
     Dtype parseDtype(const std::string &s) {
@@ -716,7 +752,7 @@ namespace dsts::geom
         if (s == "float")   return Dtype::Float_alias;   // default choice if collisions matter
         if (s == "float16") return Dtype::Float16_alias; // same as above
 
-        return Dtype{}; // or handle error
+        throw std::runtime_error("Unsupported vertex data type: " + s);
     }
 
     std::vector<std::pair<std::shared_ptr<Bone>, const Mesh*>> getGeometry(const std::vector<Mesh>& meshes) {

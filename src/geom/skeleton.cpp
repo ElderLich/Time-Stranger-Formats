@@ -13,13 +13,16 @@
 #include "../utils/hash.cpp"
 #include "../utils/quaternion.cpp"
 #include "../utils/errors.cpp"
+#include "../utils/checked_binary.hpp"
+#include <unordered_map>
+#include <unordered_set>
 #include "binary/skeleton.hpp"
 
 namespace dsts::geom
 {  
     class Bone {
         public:
-            uint32_t name_hash;
+            uint32_t name_hash = 0;
             std::string name;
 
             binary::BoneTransform transform;
@@ -65,113 +68,86 @@ namespace dsts::geom
                 return true; // all parents either null or in bones
             }
 
-            void read(std::istream& f, int skeleton_base = 0, int base = 0){
-                binary::SkeletonHeader header;
-
-                f.seekg(base+skeleton_base);
-                f.read(reinterpret_cast<char*>(&header), sizeof(binary::SkeletonHeader));
-
-                if (header.bone_count > 0) {
-                    ASSERT_OR_THROW(header.bone_parent_vector_size == 2, "bone parent vectors are not of size 2");
-                    std::vector<std::array<uint16_t, 2>> boneParentPairs(header.bone_parent_pairs_count);
-                    if (!boneParentPairs.empty()) {
-                        f.read(reinterpret_cast<char*>(boneParentPairs.data()), sizeof(uint16_t) * 2 * boneParentPairs.size());
-                    }
-
-                    std::vector<binary::BoneTransform> transforms(header.bone_count);
-                    f.seekg(header.bone_transform_offset
-                        + base 
-                        + skeleton_base 
-                        + offsetof(binary::SkeletonHeader, bone_transform_offset)
-                    );
-                    f.read(reinterpret_cast<char*>(transforms.data()), sizeof(binary::BoneTransform) * header.bone_count);
-
-                    std::vector<uint32_t> name_hashes(header.bone_count);
-                    f.seekg(header.bone_name_hashes_offset
-                        + base 
-                        + skeleton_base 
-                        + offsetof(binary::SkeletonHeader, bone_name_hashes_offset)
-                    );
-                    f.read(reinterpret_cast<char*>(name_hashes.data()), sizeof(uint32_t) * header.bone_count);
-
-
-                    for (int i = 0; i < header.bone_count; i++) {
-                        std::shared_ptr<Bone> bone_ptr = std::make_shared<Bone>();
-
-                        bone_ptr->transform = transforms[i];
-                        bone_ptr->name_hash = name_hashes[i];
-
-                        bones.push_back(std::move(bone_ptr));
-                    }
-
-                    std::vector<uint16_t> parent_bones(header.bone_count);
-                    f.seekg(header.parent_bones_offset
-                        + base 
-                        + skeleton_base 
-                        + offsetof(binary::SkeletonHeader, parent_bones_offset)
-                    );
-                    f.read(reinterpret_cast<char*>(parent_bones.data()), sizeof(uint16_t) * header.bone_count);
-
-                    for (int i = 0; i < header.bone_count; i++) {
-
-                        uint16_t bone = boneParentPairs[parent_bones[i]][0];
-                        uint16_t parent = boneParentPairs[parent_bones[i]][1];
-                        constexpr uint16_t noParent = 0x7FFF;
-
-                        //????
-                        if (parent > noParent) {
-                            parent = parent - noParent;
-                        }
-
-                        if (parent != noParent) {
-                            bones[bone]->parent = bones[parent];
-                        }
-                    } 
+            void validate() const {
+                if (bones.size() > 0x7FFF) throw std::runtime_error("Skeleton has too many bones for its parent encoding");
+                std::unordered_map<const Bone*, size_t> lookup;
+                for (size_t i=0; i<bones.size(); ++i) {
+                    if (!bones[i] || !lookup.emplace(bones[i].get(),i).second)
+                        throw std::runtime_error("Skeleton contains a null or duplicate bone");
                 }
+                std::vector<int> parents(bones.size(),-1);
+                for (size_t i=0; i<bones.size(); ++i) {
+                    const auto& bone=bones[i];
+                    if (bone->parent) {
+                        const auto found=lookup.find(bone->parent.get());
+                        if(found==lookup.end()) throw std::runtime_error("Bone parent is outside the skeleton");
+                        parents[i]=static_cast<int>(found->second);
+                    }
+                    for(const float* values : {bone->transform.position,bone->transform.quaternion,bone->transform.scale})
+                        for(int j=0;j<4;++j) if(!std::isfinite(values[j])) throw std::runtime_error("Bone transform is not finite");
+                }
+                validateParentIndices(parents);
+            }
 
-                if (header.float_channel_count > 0) {
-                    ASSERT_OR_THROW(header.float_channel_count == 0, "float channels encountered, these are not yet supported");
-
-                    // std::vector<uint32_t> name_hashes(header.float_channel_count);
-                    // f.seekg(header.float_channel_name_hashes_offset
-                    //     + base 
-                    //     + skeleton_base 
-                    //     + offsetof(binary::SkeletonHeader, float_channel_name_hashes_offset)
-                    // );
-                    // f.read(reinterpret_cast<char*>(name_hashes.data()), sizeof(uint32_t) * header.float_channel_count);
-
-                    // std::vector<uint32_t> array_indices(header.float_channel_count);
-                    // f.seekg(header.float_channel_array_indices_offset
-                    //     + base 
-                    //     + skeleton_base 
-                    //     + offsetof(binary::SkeletonHeader, float_channel_array_indices_offset)
-                    // );
-                    // f.read(reinterpret_cast<char*>(array_indices.data()), sizeof(uint32_t) * header.float_channel_count);
-
-                    // std::vector<uint8_t> flags(header.float_channel_count);
-                    // f.seekg(header.float_channel_flags_offset
-                    //     + base 
-                    //     + skeleton_base 
-                    //     + offsetof(binary::SkeletonHeader, float_channel_flags_offset)
-                    // );
-                    // f.read(reinterpret_cast<char*>(flags.data()), sizeof(uint8_t) * header.float_channel_count);
-
-                    // for (int i = 0; i < header.float_channel_count; i++) {
-                    //     FloatChannel channel;
-
-                    //     channel.name_hash = name_hashes[i];
-                    //     channel.array_index = array_indices[i];
-                    //     channel.flags = flags[i];
-
-                    //     float_channels.push_back(channel);
-                    // }
-
+            static void validateParentIndices(const std::vector<int>& parents) {
+                std::vector<uint8_t> state(parents.size(),0);
+                for(size_t start=0;start<parents.size();++start) {
+                    if(state[start]) continue;
+                    int current=static_cast<int>(start);
+                    while(current>=0 && state[current]==0) {
+                        state[current]=1; current=parents[current];
+                    }
+                    if(current>=0 && state[current]==1) throw std::runtime_error("Skeleton parent cycle");
+                    current=static_cast<int>(start);
+                    while(current>=0 && state[current]==1) {state[current]=2;current=parents[current];}
                 }
             }
 
+            void read(std::istream& f, uint64_t skeleton_base = 0, uint64_t base = 0) {
+                const auto origin=dsts::checkedAdd(base,skeleton_base,"Skeleton base");
+                dsts::CheckedBinary input(f,origin);
+                const auto header=input.object<binary::SkeletonHeader>(0,"Skeleton header");
+                if(std::memcmp(header.magic,"60SE",4)!=0) throw std::runtime_error("Unsupported skeleton magic");
+                if(header.float_channel_count) throw std::runtime_error("Skeleton float channels are not supported");
+                if(header.bone_count>0x7FFF) throw std::runtime_error("Unsupported skeleton parent encoding");
+                input.range(0,header.skeleton_file_size,1,"Skeleton size");
+                if(header.skeleton_file_size<sizeof(header)) throw std::runtime_error("Invalid skeleton size");
+                if(header.bone_count && header.bone_parent_vector_size!=2)
+                    throw std::runtime_error("Unsupported bone parent vector size");
+                auto pairs=input.array<std::array<uint16_t,2>>(sizeof(header),header.bone_parent_pairs_count,"Bone parent pairs");
+                auto transforms=input.array<binary::BoneTransform>(dsts::checkedAdd(header.bone_transform_offset,
+                    offsetof(binary::SkeletonHeader,bone_transform_offset),"Bone transforms"),header.bone_count,"Bone transforms");
+                auto hashes=input.array<uint32_t>(dsts::checkedAdd(header.bone_name_hashes_offset,
+                    offsetof(binary::SkeletonHeader,bone_name_hashes_offset),"Bone hashes"),header.bone_count,"Bone hashes");
+                auto table=input.array<uint16_t>(dsts::checkedAdd(header.parent_bones_offset,
+                    offsetof(binary::SkeletonHeader,parent_bones_offset),"Parent indices"),header.bone_count,"Parent indices");
+                std::vector<int> parents(header.bone_count,-1);
+                std::vector<bool> seen(header.bone_count,false);
+                for(auto index:table) {
+                    if(index>=pairs.size()) throw std::runtime_error("Bone parent pair index is out of range");
+                    auto bone=pairs[index][0], parent=pairs[index][1];
+                    if(parent>0x7FFF) parent-=0x7FFF; // Preserve the existing captured parent encoding.
+                    if(bone>=header.bone_count || (parent!=0x7FFF && parent>=header.bone_count))
+                        throw std::runtime_error("Bone or parent index is out of range");
+                    if(seen[bone]) throw std::runtime_error("Duplicate bone parent assignment");
+                    seen[bone]=true;parents[bone]=parent==0x7FFF ? -1 : parent;
+                }
+                validateParentIndices(parents);
+                std::vector<std::shared_ptr<Bone>> parsed;
+                parsed.reserve(header.bone_count);
+                for(size_t i=0;i<header.bone_count;++i) {
+                    auto bone=std::make_shared<Bone>();bone->transform=transforms[i];bone->name_hash=hashes[i];parsed.push_back(bone);
+                }
+                for(size_t i=0;i<parsed.size();++i) if(parents[i]>=0) parsed[i]->parent=parsed[parents[i]];
+                bones=std::move(parsed);validate();
+            }
+
             uint64_t write(std::ostream& f, int skeleton_base = 0, int base = 0) {
-                binary::SkeletonHeader header;
-                f.seekp(skeleton_base + base);
+                if(base<0 || skeleton_base<0) throw std::runtime_error("Negative skeleton base");
+                validate();
+                f.exceptions(std::ios::failbit | std::ios::badbit);
+                binary::SkeletonHeader header{};
+                f.seekp(static_cast<uint64_t>(skeleton_base) + static_cast<uint64_t>(base));
                 alignStream(f, 0x10);
                 uint64_t skeleton_start = f.tellp();
 
@@ -201,7 +177,7 @@ namespace dsts::geom
                     if (bones[i]->name.length() > 0) {
                         bone_name_hashes[i] = crc32((const uint8_t *)(bones[i]->name.c_str()),bones[i]->name.length());
                     } else {
-                        bone_name_hashes[i] = 0;
+                        bone_name_hashes[i] = bones[i]->name_hash;
                     }
                 }
 
@@ -379,20 +355,22 @@ namespace dsts::geom
         return m;
     }
 
-    Matrix GetWorldMatrix(const std::shared_ptr<Bone>& bone){
-        Matrix local = TransformToMatrix(bone->transform);
-        if (bone->parent)
-            return GetWorldMatrix(bone->parent).multiply(local);
-        else
-            return local;
+    Matrix GetWorldMatrix(const Bone &bone){
+        std::vector<const Bone*> chain;
+        std::unordered_set<const Bone*> seen;
+        for(const Bone* current=&bone;current;current=current->parent.get()) {
+            if(!seen.insert(current).second) throw std::runtime_error("Skeleton parent cycle");
+            chain.push_back(current);
+        }
+        Matrix result=TransformToMatrix(chain.back()->transform);
+        for(auto i=chain.rbegin()+1;i!=chain.rend();++i)
+            result=result.multiply(TransformToMatrix((*i)->transform));
+        return result;
     }
 
-    Matrix GetWorldMatrix(const Bone &bone){
-        Matrix local = TransformToMatrix(bone.transform);
-        if (bone.parent)
-            return GetWorldMatrix(bone.parent).multiply(local);
-        else
-            return local;
+    Matrix GetWorldMatrix(const std::shared_ptr<Bone>& bone){
+        if(!bone) throw std::runtime_error("Null bone has no world transform");
+        return GetWorldMatrix(*bone);
     }
 
     Matrix ComputeInverseBindPose(const std::shared_ptr<Bone>& bone){

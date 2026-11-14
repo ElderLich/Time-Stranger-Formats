@@ -27,8 +27,8 @@ void bind_skeleton(py::module_ &m) {
                     py::cast(&bt)                 // base object (keeps alive)
                 );
             },
-            [member,name](BoneTransform &bt, py::array_t<float> arr) {
-                if (arr.size() != 4)
+            [member,name](BoneTransform &bt, py::array_t<float,py::array::c_style | py::array::forcecast> arr) {
+                if (arr.ndim()!=1 || arr.size() != 4)
                     throw std::runtime_error(std::string(name) + " must have size 4");
                 std::memcpy(bt.*member, arr.data(), 4*sizeof(float));
             }
@@ -109,8 +109,13 @@ void bind_skeleton(py::module_ &m) {
             return py::bytes(f.str());
         })
         .def("to_file", [](Skeleton &s, py::str filename){
-            std::ofstream f(filename, std::ios::binary);
-            s.write(f);
+            MemoryStream staged;
+            s.write(staged);
+            const auto bytes=staged.str();
+            std::ofstream f;
+            f.exceptions(std::ios::failbit | std::ios::badbit);
+            f.open(std::string(filename), std::ios::binary);
+            f.write(bytes.data(),static_cast<std::streamsize>(bytes.size()));
             f.close();
         }, py::arg("data"));
 }

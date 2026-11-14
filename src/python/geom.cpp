@@ -21,11 +21,7 @@ void bind_geom(py::module_ &m) {
         .def_readwrite("unknown_0x34", &Geom::unknown_0x34)
         .def_property("clut", [](const Geom &g){
             constexpr size_t n = sizeof(g.clut);
-            return py::memoryview::from_buffer(
-                reinterpret_cast<uint8_t const*>(&g.clut),
-                { n },
-                { sizeof(uint8_t) }
-            );
+            return py::bytes(reinterpret_cast<const char*>(&g.clut),n);
         },[](Geom &g, py::bytes b){
             constexpr size_t n = sizeof(g.clut);
 
@@ -34,12 +30,8 @@ void bind_geom(py::module_ &m) {
             const uint8_t* src = static_cast<const uint8_t*>(info.ptr);
             uint8_t* value = reinterpret_cast<uint8_t*>(&g.clut);
 
-            if (input_size >= n) {
-                memcpy(value, src, n);
-            } else {
-                memcpy(value, src, input_size);
-                memset(value + input_size, 0, n - input_size);
-            }
+            if(input_size!=n) throw std::runtime_error("CLUT byte length does not match the format");
+            memcpy(value,src,n);
 
         })
         .def_readwrite("skeleton", &Geom::skeleton)
@@ -77,8 +69,13 @@ void bind_geom(py::module_ &m) {
             return py::bytes(f.str());
         })
         .def("to_file", [](Geom &g, py::str filename){
-            std::ofstream f(filename, std::ios::binary);
-            g.write(f);
+            MemoryStream staged;
+            g.write(staged);
+            const auto bytes=staged.str();
+            std::ofstream f;
+            f.exceptions(std::ios::failbit | std::ios::badbit);
+            f.open(std::string(filename), std::ios::binary);
+            f.write(bytes.data(),static_cast<std::streamsize>(bytes.size()));
             f.close();
         })
         .def("copy", &Geom::copy);

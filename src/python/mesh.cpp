@@ -31,26 +31,14 @@ struct AttributeToNumpy {
         std::vector<size_t> shape = { static_cast<size_t>(vec.size()) };
         std::vector<size_t> strides = { static_cast<size_t>(sizeof(RawT)) };
 
-        if constexpr (std::is_same_v<RawT, float16>) {
-            // For float16 we treat the underlying storage as uint16_t
-            auto data_ptr = reinterpret_cast<const uint16_t*>(vec.data());
-            // dtype "e" is NumPy half — pybind11 accepts dtype string
-            return py::array(
-                py::dtype("e"),
-                shape,
-                strides,
-                const_cast<uint16_t*>(data_ptr), // py::array takes non-const void*
-                owner // owner keeps the parent (and thus the memory) alive
-            );
-        } else {
-            return py::array(
-                py::dtype::of<RawT>(),
-                shape,
-                strides,
-                const_cast<RawT*>(vec.data()),
-                owner
-            );
-        }
+        const auto dtype = [] {
+            if constexpr(std::is_same_v<RawT,float16>) return py::dtype("e");
+            else return py::dtype::of<RawT>();
+        }();
+        py::array result(dtype,shape);
+        if(vec.size()) std::memcpy(result.mutable_data(),vec.data(),vec.size()*sizeof(RawT));
+        return result; // A snapshot survives vector replacement and variant reassignment.
+
     }
 };
 
@@ -67,7 +55,8 @@ void numpy_to_inline(InlineVec<T>& out_vec, const py::array& arr) {
     }
 
     out_vec.resize(size);
-    std::memcpy(out_vec.data(), arr.data(), size * sizeof(T));
+    auto contiguous=py::array::ensure(arr,py::array::c_style);
+    std::memcpy(out_vec.data(), contiguous.data(), size * sizeof(T));
 }
 
 // Specialization/Overload for float16
@@ -82,7 +71,8 @@ inline void numpy_to_inline_f16(InlineVec<float16>& out_vec, const py::array& ar
     }
 
     out_vec.resize(size);
-    std::memcpy(out_vec.data(), arr.data(), size * sizeof(uint16_t));
+    auto contiguous=py::array::ensure(arr,py::array::c_style);
+    std::memcpy(out_vec.data(), contiguous.data(), size * sizeof(uint16_t));
 }
 
 // ---------- Assign NumPy array → VertexAttribute ----------
@@ -237,14 +227,15 @@ void bind_mesh(py::module_ &m) {
     py::class_<Mesh>(m, "Mesh")
         .def(py::init<>())
         .def("set_vertex_count", [](Mesh &m, uint64_t count){
-            m.vertices.clear();
-            m.vertices.resize(count);
+            if(count>65536) throw std::runtime_error("Mesh exceeds the supported 16-bit index format");
+            m.vertices.resize(static_cast<size_t>(count));
         })
         .def("set_position",[](Mesh &m, py::array_t<float, py::array::c_style | py::array::forcecast> positions){
             if (positions.ndim() != 2 ||positions.shape(1) != 3) {
                 throw std::runtime_error("positions must be a (N, 3) float16 array");
             }
             size_t vertexCount = positions.shape(0);
+            if(vertexCount!=m.vertices.size()) throw std::runtime_error("positions row count does not match the mesh");
             const float* ptr = (positions.data());
             for (size_t i = 0; i < vertexCount; ++i) {
                 const float* dataPtr = ptr + 3 * i;
@@ -256,6 +247,8 @@ void bind_mesh(py::module_ &m) {
                 throw std::runtime_error("normals must be a (N, 3) float16 array");
             }
             size_t vertexCount = normals.shape(0);
+            if(vertexCount!=m.vertices.size()) throw std::runtime_error("normals row count does not match the mesh");
+            normals=py::array::ensure(normals,py::array::c_style);
             const float16* ptr = reinterpret_cast<const float16*>(normals.data());
             for (size_t i = 0; i < vertexCount; ++i) {
                 const float16* dataPtr = ptr + 3 * i;
@@ -263,11 +256,13 @@ void bind_mesh(py::module_ &m) {
             }
         })
         .def("set_uv",[](Mesh &m, int uv, py::array_t<float, py::array::c_style | py::array::forcecast> uvs){
+            if(uv<1 || uv>3) throw std::runtime_error("UV channel must be 1, 2 or 3");
             if (uvs.ndim() != 2 || uvs.shape(1) != 2) {
                 throw std::runtime_error("uvs must be a (N, 2) float32 array");
             }
             size_t vertexCount = uvs.shape(0);
-            float* ptr = uvs.mutable_data();
+            if(vertexCount!=m.vertices.size()) throw std::runtime_error("uvs row count does not match the mesh");
+            const float* ptr = uvs.data();
             for (size_t i = 0; i < vertexCount; ++i) {
                 const float* dataPtr = ptr + 2 * i;
                 switch (uv) {
@@ -282,7 +277,8 @@ void bind_mesh(py::module_ &m) {
                 throw std::runtime_error("colors must be a (N, 4) uint8 array");
             }
             size_t vertexCount = colors.shape(0);
-            uint8_t* ptr = colors.mutable_data();
+            if(vertexCount!=m.vertices.size()) throw std::runtime_error("colors row count does not match the mesh");
+            const uint8_t* ptr = colors.data();
             for (size_t i = 0; i < vertexCount; ++i) {
                 const uint8_t* dataPtr = ptr + 4 * i;
                 m.vertices[i].color.setFromPtr<uint8_t>((const char *)dataPtr, 4);
@@ -293,31 +289,36 @@ void bind_mesh(py::module_ &m) {
                 throw std::runtime_error("tangents must be a (N, 4) float16 array");
             }
             size_t vertexCount = tangents.shape(0);
-            const float16* ptr = reinterpret_cast<const float16*>(tangents.mutable_data());
+            if(vertexCount!=m.vertices.size()) throw std::runtime_error("tangents row count does not match the mesh");
+            tangents=py::array::ensure(tangents,py::array::c_style);
+            const float16* ptr = reinterpret_cast<const float16*>(tangents.data());
             for (size_t i = 0; i < vertexCount; ++i) {
                 const float16* dataPtr = ptr + 4 * i;
                 m.vertices[i].tangent.setFromPtr<float16>((const char *)dataPtr, 4);
             }
         })
         .def("set_index",[](Mesh &m, py::array_t<uint8_t, py::array::c_style | py::array::forcecast> indices){
-            if (indices.ndim() != 2 || indices.shape(1) > 4) {
+            if (indices.ndim() != 2 || (indices.shape(1) < 1 || indices.shape(1) > 4)) {
                 throw std::runtime_error("indices must be an (N, <=4) uint8 array");
             }
             size_t vertexCount = indices.shape(0);
+            if(vertexCount!=m.vertices.size()) throw std::runtime_error("indices row count does not match the mesh");
             size_t groupCount = indices.shape(1);
-            uint8_t* ptr = indices.mutable_data();
+            const uint8_t* ptr = indices.data();
             for (size_t i = 0; i < vertexCount; ++i) {
                 const uint8_t* dataPtr = ptr + groupCount * i;
                 m.vertices[i].index.setFromPtr<uint8_t>((const char *)dataPtr, groupCount);
             }
         })
         .def("set_weight",[](Mesh &m, py::array weights){
-            if (weights.ndim() != 2 || weights.shape(1) > 4 || !weights.dtype().is(py::dtype("float16")) ) {
+            if (weights.ndim() != 2 || (weights.shape(1) < 1 || weights.shape(1) > 4) || !weights.dtype().is(py::dtype("float16")) ) {
                 throw std::runtime_error("weights must be an (N, <=4) float16 array");
             }
             size_t vertexCount = weights.shape(0);
+            if(vertexCount!=m.vertices.size()) throw std::runtime_error("weights row count does not match the mesh");
+            weights=py::array::ensure(weights,py::array::c_style);
             size_t groupCount = weights.shape(1);
-            const float16* ptr =  reinterpret_cast<const float16*>(weights.mutable_data());
+            const float16* ptr =  reinterpret_cast<const float16*>(weights.data());
             for (size_t i = 0; i < vertexCount; ++i) {
                 const float16* dataPtr = ptr + groupCount * i;
                 m.vertices[i].weight.setFromPtr<float16>((const char *)dataPtr, groupCount);
