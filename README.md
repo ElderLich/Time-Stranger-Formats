@@ -88,7 +88,10 @@ Revision 14 actor effect. It does not implement a complete particle simulator.
 The effect BSON API has eight tests and three actual edit/export/reopen fixtures.
 Both native `Geom.to_file` and `Skeleton.to_file` use atomic file replacement.
 Mesh controllers and edits to flagged skeleton hierarchies fail explicitly;
-bounds are still recomputed on export. The reference add-on blocks exports
+unchanged spatial data retains authored culling bounds, while geometry or
+rest-pose edits recompute them. Fully rigid scenes accept authored reference
+bounds and unused identity helper matrices, including zero-scale groups; invalid
+numeric bounds and unexpected geometry bind matrices remain diagnosed. The reference add-on blocks exports
 that would discard scene or binding metadata. Use the maintained importer for
 the complete Blender workflow, and consult [coverage and limits](docs/formats.md)
 before editing a new asset type.

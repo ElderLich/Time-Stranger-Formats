@@ -374,6 +374,44 @@ class SafetyTests(unittest.TestCase):
         singular.skeleton.bones[0].transform.position=np.array([1,0,0,1],np.float32)
         with self.assertRaisesRegex(Exception,'singular'):singular.to_bytes()
 
+    def test_rigid_authored_bounds_and_hidden_helper(self):
+        geom=example();geom.meshes[0].flag_2=True;geom.skeleton.bones[0].is_geometry=True
+        helper=formats.Bone();helper.name='hidden_group';geom.skeleton.bones.append(helper)
+        raw=bytearray(geom.to_bytes())
+        mesh=struct.unpack_from('<Q',raw,0x48)[0]
+        struct.pack_into('<7f',raw,mesh+0x54,20,3,4,5,10,10,10)
+        struct.pack_into('<6f',raw,0x14,3,4,5,10,10,10)
+        skeleton=struct.unpack_from('<Q',raw,0x98)[0]
+        transform=skeleton+24+struct.unpack_from('<I',raw,skeleton+24)[0]+48
+        struct.pack_into('<3f',raw,transform+16,1,2,3)
+        struct.pack_into('<3f',raw,transform+32,0,0,0)
+        formats.set_error_list([])
+        source=formats.Geom.from_bytes(bytes(raw))
+        self.assertTrue(source.is_rigid_scene)
+        self.assertEqual(formats.get_error_list(),[])
+        self.assertTrue(source.authored_bounds_match)
+        reloaded=formats.Geom.from_bytes(source.to_bytes())
+        self.assertEqual(reloaded.authored_bounds,source.authored_bounds)
+        self.assertEqual(preserved_sections(reloaded.to_bytes())['ibpm'],preserved_sections(raw)['ibpm'])
+        # Changing geometry invalidates authored bounds, as does a rest-pose edit.
+        changed=formats.Geom.from_bytes(bytes(raw))
+        changed.meshes[0].vertices[0].position=np.array([9,0,0],np.float32)
+        self.assertFalse(changed.authored_bounds_match)
+        self.assertNotEqual(formats.Geom.from_bytes(changed.to_bytes()).authored_bounds,source.authored_bounds)
+        changed=formats.Geom.from_bytes(bytes(raw))
+        changed.skeleton.bones[0].transform.position=np.array([2,0,0,1],np.float32)
+        self.assertFalse(changed.authored_bounds_match)
+        # Numeric corruption remains fatal even with warning collection enabled.
+        formats.set_throw_errors(False)
+        for value in (float('nan'),float('inf'),-1):
+            broken=bytearray(raw);struct.pack_into('<f',broken,mesh+0x54,value)
+            with self.assertRaisesRegex(RuntimeError,'Authored bounds'):formats.Geom.from_bytes(bytes(broken))
+        # Geometry IBPM corruption is still reported rather than hidden.
+        broken=bytearray(raw);ibpm=struct.unpack_from('<Q',raw,0x68)[0]
+        struct.pack_into('<f',broken,ibpm+12,1)
+        formats.set_error_list([]);formats.Geom.from_bytes(bytes(broken))
+        self.assertTrue(any('Geometry inverse bind' in e for e in formats.get_error_list()))
+
     def test_flagged_parent_encoding_and_preservation(self):
         skeleton=formats.Skeleton();a=formats.Bone();b=formats.Bone();a.name='a';b.name='b';b.parent=a;skeleton.bones=[a,b]
         raw=bytearray(skeleton.to_bytes());struct.pack_into('<H',raw,64+4+2,0x8000)

@@ -67,6 +67,9 @@ void bind_geom(py::module_ &m) {
         .def_property("bind_pose_snapshot",[](const Geom& g){return py::bytes(g.getBindPoseSnapshot());},
             [](Geom& g,py::bytes data){g.setBindPoseSnapshot(static_cast<std::string>(data));})
         .def_property_readonly("bind_pose_snapshot_matches",&Geom::bindPoseSnapshotMatches)
+        .def_property_readonly("is_rigid_scene",&Geom::isRigidScene)
+        .def_property("authored_bounds",&Geom::getAuthoredBounds,&Geom::setAuthoredBounds)
+        .def_property_readonly("authored_bounds_match",&Geom::authoredBoundsMatch)
         .def_readwrite("unknown_0x10", &Geom::unknown_0x10)
         .def_readwrite("unknown_0x30", &Geom::unknown_0x30)
         .def_readwrite("unknown_0x34", &Geom::unknown_0x34)

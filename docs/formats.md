@@ -43,7 +43,15 @@ existing outputs and supports an expected SHA256 guard. Python mesh/material/CLU
 snapshots own their storage and stay valid after deleting or resizing the source.
 
 Exact preservation applies to the documented records and unchanged source bind
-metadata. The writer still recomputes bounds and rebuilds other layout sections.
+metadata and authored culling bounds for unchanged spatial data. Geometry or
+rest-pose edits invalidate bounds preservation; the writer then calculates new
+bounds and rebuilds other layout sections. `Geom.authored_bounds` contains the
+global bound followed by each draw's bound as `[radius, cx, cy, cz, ex, ey, ez]`.
+Assign it only after validating that the spatial data is unchanged when moving
+between representations; subsequent native geometry/rig edits invalidate reuse.
+Fully rigid scenes use authored reference bounds rather than equality with raw
+local vertices, and unused identity helper matrices need not invert a hidden
+zero-scale rest pose. Other bind disagreements remain reported.
 Whole-file byte identity and every vertex attribute are not covered by the
 current corpus assertions. A successful parse or round trip does not prove
 native game acceptance.

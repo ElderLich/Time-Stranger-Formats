@@ -39,6 +39,24 @@ namespace dsts::geom
         std::vector<binary::Ibpm> sourceIbpm;
         std::vector<BindPoseEntry> sourceBindPose;
         bool hasSourceIbpm=false;
+        std::vector<std::array<float,7>> sourceBounds;
+        std::string sourceBoundsGeometry;
+        std::vector<BindPoseEntry> sourceBoundsPose;
+
+        std::string boundsGeometry() const {
+            std::string result;
+            const auto append=[&](const auto& v) { result.append(reinterpret_cast<const char*>(&v),sizeof(v)); };
+            append(meshes.size());
+            for(const auto& mesh:meshes) {
+                append(mesh.vertices.size());append(mesh.matrix_palette.size());append(mesh.flag_2);
+                for(const auto& bone:mesh.matrix_palette) append(getIndex(skeleton.bones,bone));
+                for(const auto& v:mesh.vertices) {
+                    const auto& p=std::get<InlineVec<float>>(v.position.data);
+                    for(int j=0;j<3;++j) append(p[j]);
+                }
+            }
+            return result;
+        }
 
         std::vector<BindPoseEntry> bindPose() const {
             std::vector<BindPoseEntry> result;
@@ -48,6 +66,30 @@ namespace dsts::geom
             return result;
         }
         public:
+            // Bounds in rigid scenes describe an authored reference state, not
+            // necessarily the local vertices or the initial (often hidden) pose.
+            bool isRigidScene() const {
+                return !meshes.empty() && std::all_of(meshes.begin(),meshes.end(),[](const Mesh& mesh) {
+                    return mesh.flag_2 && mesh.matrix_palette.size()==1 && mesh.matrix_palette[0]->is_geometry &&
+                        std::all_of(mesh.vertices.begin(),mesh.vertices.end(),[](const Vertex& v) {
+                            return std::get<InlineVec<float>>(v.position.data).size()==3;
+                        });
+                });
+            }
+
+            std::vector<std::array<float,7>> getAuthoredBounds() const { return sourceBounds; }
+            void setAuthoredBounds(const std::vector<std::array<float,7>>& values) {
+                if(values.empty()) { sourceBounds.clear();sourceBoundsGeometry.clear();sourceBoundsPose.clear();return; }
+                if(values.size()!=meshes.size()+1) throw std::runtime_error("Authored bounds count differs from GEOM");
+                for(const auto& row:values) for(size_t i=0;i<row.size();++i)
+                    if(!std::isfinite(row[i]) || ((i==0 || i>=4) && row[i]<0))
+                        throw std::runtime_error("Authored bounds must be finite with nonnegative radius and extents");
+                auto geometry=boundsGeometry();auto pose=bindPose();
+                sourceBounds=values;sourceBoundsGeometry=std::move(geometry);sourceBoundsPose=std::move(pose);
+            }
+            bool authoredBoundsMatch() const {
+                return !sourceBounds.empty() && sourceBoundsPose==bindPose() && sourceBoundsGeometry==boundsGeometry();
+            }
             // Compact project metadata, not a game format. Unknown original
             // matrices can be retained across a saved Blender project without
             // embedding meshes/textures or bypassing the bind-pose comparison.
@@ -125,6 +167,7 @@ namespace dsts::geom
                 f.exceptions(std::ios::failbit | std::ios::badbit);
                 meshes.clear();materials.clear();cameras.clear();lights.clear();skeleton.bones.clear();skeleton.float_channels.clear();
                 sourceIbpm.clear();sourceBindPose.clear();hasSourceIbpm=false;
+                sourceBounds.clear();sourceBoundsGeometry.clear();sourceBoundsPose.clear();
                 binary::GeomHeader header{};
 
                 f.seekg(base);
@@ -295,7 +338,17 @@ namespace dsts::geom
                     pair.first->is_geometry = true;
                 }
 
+                std::vector<std::array<float,7>> bounds{{0,header.centre[0],header.centre[1],header.centre[2],
+                                                        header.bbox[0],header.bbox[1],header.bbox[2]}};
+                for(const auto& h:meshHeaders) bounds.push_back({h.bounding_sphere_radius,h.centre[0],h.centre[1],h.centre[2],
+                                                               h.bbox[0],h.bbox[1],h.bbox[2]});
+                // Camera-only resources use sentinel (empty) bounds. Their
+                // original records are retained separately from drawable bounds.
+                if(!meshes.empty()) setAuthoredBounds(bounds);
+                const bool rigidScene=isRigidScene();
+
                 for (int i = 0; i < meshes.size() ; i++) {
+                    if(rigidScene) continue;
                     //bounding sanity check
                     Mesh mesh = meshes[i];
                     std::vector<std::array<float, 3>> pos;
@@ -320,7 +373,7 @@ namespace dsts::geom
                 for (int i = 0; i < skeleton.bones.size(); i++) {
                     if (skeleton.bones[i]->is_geometry) {
                         ASSERT_OR_THROW(ibpmEqual(ibpms[i], Ibpm()), "Geometry inverse bind matrix differs from identity: " + skeleton.bones[i]->name);
-                    } else {
+                    } else if(!rigidScene || !ibpmEqual(ibpms[i], Ibpm())) {
                         try {
                             const Ibpm computed=ibpmFromMatrix(ComputeInverseBindPose(skeleton.bones[i]));
                             ASSERT_OR_THROW(ibpmEqual(ibpms[i], computed), "Inverse bind matrix differs from computed pose: " + skeleton.bones[i]->name);
@@ -355,7 +408,7 @@ namespace dsts::geom
                     h_info.bbox = {header.bbox[0],header.bbox[1],header.bbox[2]};
                     h_info.centre = {header.centre[0],header.centre[1],header.centre[2]};
 
-                    ASSERT_OR_THROW(boundingEquals(info,h_info), "GEOM bounds differ from computed positions");
+                    if(!rigidScene) ASSERT_OR_THROW(boundingEquals(info,h_info), "GEOM bounds differ from computed positions");
                 }
 
                 std::unordered_map<uint32_t, std::string> hash_to_material_name;
@@ -575,6 +628,7 @@ namespace dsts::geom
             void write(std::ostream& f, int base = 0){
                 if(base!=0) throw std::runtime_error("Writing GEOM at a nonzero base is not supported");
                 validateForWrite();
+                const bool keepBounds=authoredBoundsMatch();
                 f.exceptions(std::ios::failbit | std::ios::badbit);
                 binary::GeomHeader header{};
 
@@ -725,6 +779,10 @@ namespace dsts::geom
                         info = calculateBoundingInfo<float>(pos);
                     }
 
+                    if(keepBounds) {
+                        const auto& b=sourceBounds[i+1];
+                        info={ {b[1],b[2],b[3]}, {b[4],b[5],b[6]}, b[0] };
+                    }
                     meshHeader.bounding_sphere_radius = info.bounding_sphere_radius;
                     meshHeader.bbox[0] = info.bbox[0];
                     meshHeader.bbox[1] = info.bbox[1];
@@ -737,6 +795,10 @@ namespace dsts::geom
                 }
 
                 BoundingInfo info = calculateBoundingInfo<float>(pos_all);
+                if(keepBounds) {
+                    const auto& b=sourceBounds[0];
+                    info={ {b[1],b[2],b[3]}, {b[4],b[5],b[6]}, b[0] };
+                }
                 header.bbox[0] = info.bbox[0];
                 header.bbox[1] = info.bbox[1];
                 header.bbox[2] = info.bbox[2];
