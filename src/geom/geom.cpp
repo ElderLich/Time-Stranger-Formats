@@ -265,6 +265,7 @@ namespace dsts::geom
                     }
 
                     mesh.name_hash = meshHeaders[i].name_hash;
+                    mesh.name_is_external = meshHeaders[i].name_offset == 0;
                     if (mesh.name_hash != 0 && meshHeaders[i].name_offset != 0) {
                         f.seekg(base + header.strings_offset + meshHeaders[i].name_offset);
 
@@ -676,7 +677,7 @@ namespace dsts::geom
                     binary::MeshHeader meshHeader{};
 
                     meshHeader.name_hash = mesh.name_hash;
-                    meshHeader.name_offset = stringSection.add(mesh.name);
+                    meshHeader.name_offset = mesh.name_is_external ? 0 : stringSection.add(mesh.name);
 
                     meshHeader.material_idx = getIndex(materials, mesh.material);
                     meshHeader.primitive_type = mesh.primitive;

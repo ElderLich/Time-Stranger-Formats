@@ -330,6 +330,8 @@ void bind_mesh(py::module_ &m) {
             [](const Mesh &m) { return m.name; }, 
             &Mesh::setName)
         .def_readonly("name_hash", &Mesh::name_hash)
+        .def_readonly("name_is_external", &Mesh::name_is_external)
+        .def("set_external_name", &Mesh::setExternalName, py::arg("name_hash"), py::arg("spelling") = "")
         .def_readwrite("flag_0", &Mesh::flag_0)
         .def_readwrite("flag_1", &Mesh::flag_1)
         .def_readwrite("flag_2", &Mesh::flag_2)

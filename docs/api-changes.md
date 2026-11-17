@@ -1,5 +1,10 @@
 # Backend 0.2 compatibility notes
 
+- `Mesh.name_is_external` identifies a zero mesh name offset in a native GEOM.
+  `Mesh.set_external_name(name_hash, spelling)` retains that layout and checks
+  a supplied NLST spelling against the native hash. Omit the spelling to
+  preserve an unresolved hash. Assigning `Mesh.name` writes a new inline name.
+
 - `Geom.to_file` and `Skeleton.to_file` share the same atomic writer after serialization,
   buffered writing, flush and sync. IO failures propagate without truncating the
   previous file. Existing replacement behavior remains explicit in this API.

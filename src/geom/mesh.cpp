@@ -122,6 +122,7 @@ namespace dsts::geom
 
             uint32_t name_hash = 0;
             std::string name;
+            bool name_is_external = false;
 
             std::vector<Vertex> vertices;
             std::vector<uint16_t> indices;
@@ -202,6 +203,17 @@ namespace dsts::geom
             void setName(std::string newName){
                 name = newName;
                 name_hash = crc32((const uint8_t*)name.data(),name.length());
+                name_is_external = false;
+            }
+
+            // A draw can carry just its hash in GEOM, with the spelling in
+            // a separate NLST. An empty spelling retains an unresolved hash.
+            void setExternalName(uint32_t hash, const std::string& spelling) {
+                if (!spelling.empty() && crc32(reinterpret_cast<const uint8_t*>(spelling.data()), spelling.size()) != hash)
+                    throw std::invalid_argument("External mesh name does not match its native hash");
+                name = spelling;
+                name_hash = hash;
+                name_is_external = true;
             }
     };
 

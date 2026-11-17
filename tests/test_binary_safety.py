@@ -92,6 +92,26 @@ class SafetyTests(unittest.TestCase):
             with self.subTest(size=size), self.assertRaises(Exception):
                 formats.Geom.from_bytes(data[:size])
 
+    def test_external_mesh_name_uses_only_the_original_hash_in_geom(self):
+        geom = example()
+        mesh = geom.meshes[0]
+        source_hash = mesh.name_hash
+        mesh.set_external_name(source_hash, 'triangle')
+        with self.assertRaises(ValueError):
+            mesh.set_external_name(source_hash, 'other')
+        self.assertEqual(mesh.name, 'triangle')
+        for spelling in ('triangle', ''):
+            mesh.set_external_name(source_hash, spelling)
+            raw = geom.to_bytes()
+            header = struct.unpack_from('<Q', raw, 0x48)[0]
+            self.assertEqual(struct.unpack_from('<IQ', raw, header + 0x34), (source_hash, 0))
+            decoded = formats.Geom.from_bytes(raw).meshes[0]
+            self.assertTrue(decoded.name_is_external)
+            self.assertEqual((decoded.name, decoded.name_hash), ('', source_hash))
+        mesh.name = 'renamed'
+        self.assertFalse(mesh.name_is_external)
+        self.assertEqual(formats.Geom.from_bytes(geom.to_bytes()).meshes[0].name, 'renamed')
+
     def test_malformed_offsets_counts_and_indices(self):
         data = example().to_bytes()
         mesh = struct.unpack_from('<Q', data, 0x48)[0]
